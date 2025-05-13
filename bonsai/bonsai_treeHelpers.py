@@ -2346,6 +2346,7 @@ class TreeNode:
             if not self.isRoot:
                 WAsIfRoot_g -= wbarChild_g
                 newSelfLtqsAIRoot -= wbarChild_g * newNode.ltqs
+            del_node_inds.append(newNode.nodeInd)
 
         # Loop over the children that should be merged
         for nodeInd in gchildInds:
@@ -2423,7 +2424,7 @@ class TreeNode:
             xrAsIfRoot_g = self.ltqs
             WAsIfRoot_g = self.getW()
 
-        # We make the new ancestor inherit the nearest neighbors from the merged child-nodes
+        # We don't do this anymore: we make the new ancestor inherit the nearest neighbors from the merged child-nodes
         if runConfigs['useNN'] and (NNInfo is not None):
             # First add the neighbor-connections from the merged children
             NN_conn_mat = NNInfo['conn_mat']
