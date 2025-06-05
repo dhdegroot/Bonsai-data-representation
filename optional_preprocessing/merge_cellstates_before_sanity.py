@@ -71,7 +71,7 @@ if __name__ == '__main__':
     parser.add_argument('--folder_cellstates_output', type=str, default='.',
                         help='Path to the folder where the cellstates output can be found')
     parser.add_argument('--file_raw_umi_counts', type=str, default='',
-                        help='Path to the folder where UMI-counts can be found')
+                        help='Path to the file where UMI-counts can be found')
     parser.add_argument('--file_cell_ids', type=str, default=None,
                         help='Path to file where cell-ids can be found')
     parser.add_argument('--file_gene_ids', type=str, default=None,
@@ -98,7 +98,7 @@ if __name__ == '__main__':
                                       header=None).values.flatten()
 
     if args.file_raw_umi_counts.split('.')[1] == 'mtx':
-        M = mmread(os.path.join(args.file_raw_umi_counts, args.file_raw_umi_counts))
+        M = mmread(args.file_raw_umi_counts)
         umi_counts = M.toarray().astype(dtype=int)
         # Read in promoter names
         gene_ids = []
@@ -114,7 +114,7 @@ if __name__ == '__main__':
             for row in reader:
                 cell_ids.append(row[0])
     else:
-        tmp = pd.read_csv(os.path.join(args.folder_raw_umi_counts, args.file_raw_umi_counts), sep='\t', index_col=0)
+        tmp = pd.read_csv(args.file_raw_umi_counts, sep='\t', index_col=0)
         cell_ids = list(tmp.columns)
         gene_ids = list(tmp.index)
         umi_counts = tmp.values.astype(dtype='int')
