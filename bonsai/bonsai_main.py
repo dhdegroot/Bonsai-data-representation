@@ -221,7 +221,7 @@ if args.step in ['core_calc', 'all']:
                                          sequential=SEQUENTIAL, verbose=args.verbose,
                                          ellipsoidSize=origEllipsoidSize, outputFolder=outputFolder, nChildNN=nChildNN,
                                          kNN=args.use_knn, mergeDownstream=True, tree=scData.tree,
-                                         tmpTreeInd=tmpTreeInd)
+                                         tmpTreeInd=tmpTreeInd, main_one=True)
         if mpiRank == 0:
             mp_print("First greedy maximisation of tree likelihood took " + str(time.time() - startGML) + " seconds.")
             scData.metadata.loglik = scData.tree.calcLogLComplete(mem_friendly=True,

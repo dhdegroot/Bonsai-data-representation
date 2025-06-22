@@ -942,7 +942,7 @@ class TreeNode:
     def mergeChildrenUB(self, xrAsIfRoot_g, WAsIfRoot_g, sequential=True, verbose=False, ellipsoidSize=None,
                         nChildUB=10, nChildNN=-1, nNewPairsPar=1000, nDonePairsPar=3000, kNN=5, outputFolder=None,
                         tree=None, redoTimeFrac=0.05, redoNNFrac=0.1, specialChild=None, mergeDownstream=True,
-                        singleProcess=False, random=False, tmpTreeInd=None, scData=None, n_mem_friendly=500):
+                        singleProcess=False, random=False, tmpTreeInd=None, scData=None, n_mem_friendly=500, main_one=False):
         """This function loops over all candidate pairs between nodes that are children of the root-node, and checks
         what the likelihood becomes when they are merged.
         :param singleProcess: This boolean variable determines whether many processes work together to calculate such
@@ -1502,18 +1502,18 @@ class TreeNode:
                     mp_print("Now %d children left. Function runtime now %.5f seconds." %
                              (chInfo['nChild'], time.time() - functionStart))
                 mergeCounter += 1
-                if (mergeCounter % 1000 == 0) and (tree is not None) and (tree_folder is not None):
+                if (main_one) and (mergeCounter % 10 == 0) and (tree is not None) and (tree_folder is not None):
                     scData.storeTreeInFolder(os.path.join(tree_folder, 'greedy_tree_%d' % tmp_tree_ind),
                                              with_coords=False, verbose=verbose, cleanup_tree=False)
-                    remove_tree_folders(tree_folder, removeDir=False, notRemove=tmp_tree_ind, base='greedy')
+                    # remove_tree_folders(tree_folder, removeDir=False, notRemove=tmp_tree_ind, base='greedy')
                     tmp_tree_ind += 1
             # mp_print("Post-processing in this round took: {} seconds.".format(time.time() - start_post_process),
             #          DEBUG=True)
 
-        if (mpiInfo.rank == 0) and (tree_folder is not None):
+        # if (mpiInfo.rank == 0) and (tree_folder is not None):
             # scData.storeTreeInFolder(os.path.join(tree_folder, 'greedy_tree_%d' % 1e5), with_coords=False,
             #                          verbose=verbose, nwk=False)
-            remove_tree_folders(tree_folder, removeDir=True, base='greedy')
+            # remove_tree_folders(tree_folder, removeDir=True, base='greedy')
         if (mpiInfo.rank == 0) and (runConfigs['mem_friendly_folder'] is not None):
             remove_folder(runConfigs['mem_friendly_folder'])
         return changedSomething
