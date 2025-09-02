@@ -593,7 +593,7 @@ class Bonvis_figure:
         edge_style = self.bonvis_settings.edge_style
         edge_coords = self.coords_info.transf_edge_coords_eix
         self.edge_obj['coll'] = LineCollection(edge_coords, colors=edge_style['color'],
-                                               linewidths=edge_style['linewidth'], zorder=1)
+                                               linewidths=edge_style['linewidth'], zorder=2)
 
     def get_bg_collection(self):
         # Create background for hyperbolic geometry
@@ -609,7 +609,7 @@ class Bonvis_figure:
                                            n_coords=n_coords)
 
             line_coll = LineCollection(self.coords_info.transf_bg_edge_coords_eix, colors=gray_cm(0.75), linewidths=.3,
-                                       linestyles='--', zorder=0.5)
+                                       linestyles='--', zorder=-2)
             plotting_space = Circle(xy=(0, 0), radius=1, fill=True, facecolor='white', edgecolor=gray_cm(0.7),
                                     zorder=-3)
 
@@ -752,17 +752,17 @@ class Bonvis_figure:
         if np.any(nan_indices):
             nan_coll = EllipseCollection(radii[nan_indices], radii[nan_indices], 0, units='width', offsets=offsets[nan_indices],
                                                         facecolors=facecolors[nan_indices, :], edgecolors=node_style['edgecolor'],
-                                                        linewidths=node_style['lw_cell'], zorder=10)
+                                                        linewidths=node_style['lw_cell'], zorder=3)
             nonnan_indices = ~nan_indices
             non_nan_coll = EllipseCollection(radii[nonnan_indices], radii[nonnan_indices], 0, units='width', offsets=offsets[nonnan_indices],
                                                         facecolors=facecolors[nonnan_indices, :], edgecolors=node_style['edgecolor'],
-                                                        linewidths=node_style['lw_cell'], zorder=100)
+                                                        linewidths=node_style['lw_cell'], zorder=10)
             self.single_obj['colls'] = [nan_coll, non_nan_coll]
             self.single_obj['colls_inds'] = [nan_indices, nonnan_indices]
         else:
             self.single_obj['colls'] = [EllipseCollection(radii, radii, 0, units='width', offsets=offsets,
                                                         facecolors=facecolors, edgecolors=node_style['edgecolor'],
-                                                        linewidths=node_style['lw_cell'], zorder=100)]
+                                                        linewidths=node_style['lw_cell'], zorder=10)]
             self.single_obj['colls_inds'] = [np.ones(len(facecolors), dtype=bool)]
 
         if plot_unit != 'verts':
@@ -834,13 +834,13 @@ class Bonvis_figure:
 
                 # Add wedge to set
                 vert_inds_per_wedge.append(vert_ind)
-                all_wedges.append(Wedge(center=coords, r=radius, theta1=deg0, theta2=degf, zorder=100))
+                all_wedges.append(Wedge(center=coords, r=radius, theta1=deg0, theta2=degf, zorder=6))
                 all_facecolors.append(color)
                 all_coords.append(coords)
                 deg0 = degf
 
         kwargs = {'match_original': False, 'facecolors': all_facecolors,
-                  'edgecolors': node_style['edgecolor'], 'linewidths': node_style['lw_cell'], 'zorder': 100}
+                  'edgecolors': node_style['edgecolor'], 'linewidths': node_style['lw_cell'], 'zorder': 6}
         self.multi_obj['kwargs'] = kwargs
         self.multi_obj['wedges'] = all_wedges
         # We store the coordinates of the center of each wedge in data-coordinates. At plotting time, we will still do the transform to
