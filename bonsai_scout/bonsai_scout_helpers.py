@@ -690,6 +690,7 @@ class Bonvis_figure:
             # In this case self.single_obj['obj_inds'] gives me the cell-inds corresponding to the cells
             # at nodes with only one cell
             facecolors = obj_to_color[self.single_obj['obj_inds']]
+            obj_to_celltype_single = obj_to_celltype[self.single_obj['obj_inds']]
             # elif annot_info.annot_type=='cellstates':
             #     # Now we have to map the obj_inds (cell-inds) to cs_inds and then into cell_to_color
             #     if not hasattr(self.bonvis_metadata, 'cell_ind_to_cs_ind_array'):
@@ -709,6 +710,7 @@ class Bonvis_figure:
             # at nodes with only one cellstate
             # if annot_info.annot_type=='cellstates':
             facecolors = obj_to_color[self.single_obj['obj_inds']]
+            obj_to_celltype_single = obj_to_celltype[self.single_obj['obj_inds']]
             # elif annot_info.annot_type=='verts':
             #     # Now we have to map the obj_inds (cs-inds) to vert_inds and then into cell_to_color
             #     vert_inds_corr_to_cells = cs_to_vert[self.single_obj['obj_inds']]
@@ -719,6 +721,7 @@ class Bonvis_figure:
             self.single_obj['obj_inds'] = self.int_obj['vert_inds_complement']
             self.single_obj['vert_inds'] = self.int_obj['vert_inds_complement']
             facecolors = obj_to_color[self.single_obj['obj_inds']]
+            obj_to_celltype_single = obj_to_celltype[self.single_obj['obj_inds']]
 
         radii = self.vert_to_size[self.single_obj['vert_inds']]
         offsets = node_coords[self.single_obj['vert_inds'], :]
@@ -745,9 +748,22 @@ class Bonvis_figure:
         #     radii = self.vert_to_size[self.int_obj['vert_inds_complement']]
         #     offsets = node_coords[self.int_obj['vert_inds_complement']]
         #     facecolors = cell_to_color[self.int_obj['vert_inds_complement']]
-        self.single_obj['coll'] = EllipseCollection(radii, radii, 0, units='width', offsets=offsets,
-                                                    facecolors=facecolors, edgecolors=node_style['edgecolor'],
-                                                    linewidths=node_style['lw_cell'], zorder=5)
+        nan_indices = obj_to_celltype_single == 'nan'
+        if np.any(nan_indices):
+            nan_coll = EllipseCollection(radii[nan_indices], radii[nan_indices], 0, units='width', offsets=offsets[nan_indices],
+                                                        facecolors=facecolors[nan_indices, :], edgecolors=node_style['edgecolor'],
+                                                        linewidths=node_style['lw_cell'], zorder=1)
+            nonnan_indices = ~nan_indices
+            non_nan_coll = EllipseCollection(radii[nonnan_indices], radii[nonnan_indices], 0, units='width', offsets=offsets[nonnan_indices],
+                                                        facecolors=facecolors[nonnan_indices, :], edgecolors=node_style['edgecolor'],
+                                                        linewidths=node_style['lw_cell'], zorder=10)
+            self.single_obj['colls'] = [nan_coll, non_nan_coll]
+            self.single_obj['colls_inds'] = [nan_indices, nonnan_indices]
+        else:
+            self.single_obj['colls'] = [EllipseCollection(radii, radii, 0, units='width', offsets=offsets,
+                                                        facecolors=facecolors, edgecolors=node_style['edgecolor'],
+                                                        linewidths=node_style['lw_cell'], zorder=10)]
+            self.single_obj['colls_inds'] = [np.arange(len(facecolors))]
 
         if plot_unit != 'verts':
             self.plot_multi_obj_verts(node_coords=node_coords, obj_to_color=obj_to_color,
@@ -1293,7 +1309,9 @@ class Bonvis_figure:
     def remove_artists(self):
         if self.is_present['nodes']:
             self.int_obj['coll'].remove()
-            self.single_obj['coll'].remove()
+            for coll in self.single_obj['colls']:
+                coll.remove()
+            # self.single_obj['coll'].remove()
             if self.multi_obj is not None:
                 self.multi_obj['coll'].remove()
             self.is_present['nodes'] = False
@@ -1430,6 +1448,10 @@ class Bonvis_figure:
 
         obj_to_celltype, obj_to_color = self.get_color_info(annot_info=annot_info)
 
+        nan_indices = obj_to_celltype == 'nan'
+        if np.any(nan_indices):
+            self.get_node_collection()
+
         if annot_info.annot_type == 'cells':
             plot_unit = 'cells'
         elif annot_info.annot_type == 'cellstates':
@@ -1438,10 +1460,14 @@ class Bonvis_figure:
             plot_unit = 'verts'
 
         if plot_unit in ['cells', 'cellstates']:
-            self.single_obj['coll'].set_facecolors(obj_to_color[self.single_obj['obj_inds']])
+            # self.single_obj['coll'].set_facecolors(obj_to_color[self.single_obj['obj_inds']])
+            for coll_ind, coll in enumerate(self.single_obj['colls']):
+                coll.set_facecolors(obj_to_color[self.single_obj['obj_inds']][self.single_obj['colls_inds'][coll_ind]])
         elif annot_info.annot_type == 'verts':
             self.int_obj['coll'].set_facecolors(obj_to_color[self.int_obj['vert_inds']])
-            self.single_obj['coll'].set_facecolors(obj_to_color[self.single_obj['vert_inds']])
+            # self.single_obj['coll'].set_facecolors(obj_to_color[self.single_obj['vert_inds']])
+            for coll_ind, coll in enumerate(self.single_obj['colls']):
+                coll.set_facecolors(obj_to_color[self.single_obj['vert_inds']][self.single_obj['colls_inds'][coll_ind]])
 
         if plot_unit != 'verts':
             self.plot_multi_obj_verts(node_coords=node_coords, obj_to_color=obj_to_color,
@@ -1514,9 +1540,12 @@ class Bonvis_figure:
                 logging.debug("Plotted all edges.")
 
         self.int_obj['coll'].set_offset_transform(self.ax.transData)
-        self.single_obj['coll'].set_offset_transform(self.ax.transData)
         self.ax.add_collection(self.int_obj['coll'])
-        self.ax.add_collection(self.single_obj['coll'])
+        for coll in self.single_obj['colls']:
+            coll.set_offset_transform(self.ax.transData)
+            self.ax.add_collection(coll)
+        # self.single_obj['coll'].set_offset_transform(self.ax.transData)
+        # self.ax.add_collection(self.single_obj['coll'])
         if self.multi_obj is not None:
             # The wedges have been created with a center that is in data-coordinates. We want to transform this into axes coordinates.
             # all_wedges = []
