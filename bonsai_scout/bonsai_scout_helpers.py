@@ -548,9 +548,9 @@ class Bonvis_figure:
                        'hyperbolic': {'coll': None, 'patches': None, 'ax_lims': None}}
         self.int_obj = {'coll': None, 'vert_inds': None}
         self.single_cell_obj = {'coll': None, 'obj_inds': None, 'vert_inds': None}
-        self.single_vert_obj = {'coll': None, 'obj_inds': None, 'vert_inds': None}
+        self.single_vert_obj = {'colls': None, 'colls_inds': None, 'obj_inds': None, 'vert_inds': None}
         self.multi_cell_obj = {'coll': None, 'obj_inds': None, 'vert_inds': None}
-        self.single_cs_obj = {'coll': None, 'obj_inds': None, 'vert_inds': None}
+        self.single_cs_obj = {'colls': None, 'colls_inds': None, 'obj_inds': None, 'vert_inds': None}
         self.multi_cs_obj = {'coll': None, 'obj_inds': None, 'vert_inds': None}
         self.single_obj = None
         self.multi_obj = None
