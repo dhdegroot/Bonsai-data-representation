@@ -16,6 +16,7 @@ os.chdir(parent_dir)
 from bonsai.bonsai_treeHelpers import Tree, TreeNode
 from bonsai.bonsai_dataprocessing import SCData
 from bonsai.bonsai_helpers import str2bool
+import bonsai.bonsai_globals as bs_glob
 
 parser = ArgumentParser(
     description='Simulates a binary tree in a lower-dimensional space.')
@@ -255,6 +256,7 @@ scData = SCData(onlyObject=True)
 scData.tree = tree
 scData.metadata.cellIds = cellIds
 scData.metadata.nCells = len(cellIds)
+bs_glob.nCells = scData.metadata.nCells
 scData.metadata.geneVariances = true_vars_g
 scData.metadata.geneIds = geneID
 

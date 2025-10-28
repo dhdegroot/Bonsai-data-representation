@@ -117,7 +117,7 @@ avg_rel_diffs = []
 methods = ['bonsai', 'pca', 'umap', 'phate', 'DTNE']
 figs_dict = {}
 axs_dict = {}
-fig, axs = plt.subplots(nrows=len(methods), ncols=len(num_dims_list), figsize=(14, 7))
+fig, axs = plt.subplots(nrows=len(methods), ncols=len(num_dims_list), figsize=(14, 12))
 
 base_folder = os.path.join(
     'paper_figure_scripts_and_notebooks/simulating_datasets/analyzing_simulated_datasets/results', args.input_folder)

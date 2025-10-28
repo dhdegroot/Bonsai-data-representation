@@ -33,7 +33,9 @@ sys.path.append(parent_dir)
 
 # TODO: REMOVE THIS LATER. Just for debugging.
 # results_folder = '/Users/Daan/Documents/postdoc/collaborations/westendorp_CHKi/bonsai_cellstates_clustered_new'
-# results_folder = '/Users/Daan/Documents/postdoc/bonsai-development/results/hao_satija_2021-CITEseq-immune_cells'
+# results_folder = '/Users/Daan/Documents/postdoc/Private-bonsai/results/hao_satija_2021_paper_figure/cs_summed/bonsai'
+# results_folder = '/Users/Daan/Documents/postdoc/Private-bonsai/results/hao_satija_2021_paper_figure/mergedgenes_no_TMono_hao_satija/cs_summed/bonsai'
+# results_folder = '/Users/Daan/Documents/postdoc/Private-bonsai/results/hao_satija_2021_paper_figure/spr_super_sure/bonsai_scicore_run'
 # settings_filename = 'bonsai_vis_settings.json'
 # os.environ['BONSAI_DATA_PATH'] = os.path.abspath(os.path.join(results_folder, 'bonsai_vis_data.hdf'))
 # os.environ['BONSAI_SETTINGS_PATH'] = os.path.abspath(os.path.join(results_folder, settings_filename))
@@ -160,13 +162,30 @@ app_ui = ui.page_sidebar(
                 #         ui.p("Use the home-button to view the whole tree again.")
                 #     ), placement='right', id='info_zoom',
                 # ),
-                ui.h6("Scale node size:"),
-                ui.span(
-                    ui.input_action_button("nodes_smaller_fast", ICONS['big_minus'], class_="btn-light d-flex justify-content-center align-items-center me-1"),
-                    # ui.input_action_button("nodes_smaller", ICONS['minus'], class_="btn-light d-flex justify-content-center align-items-center me-1"),
-                    # ui.input_action_button("nodes_bigger", ICONS['plus'], class_="btn-light d-flex justify-content-center align-items-center me-1"),
-                    ui.input_action_button("nodes_bigger_fast", ICONS['big_plus'], class_="btn-light d-flex justify-content-center align-items-center"),
-                    style="display: flex; flex-wrap: nowrap; gap: 0.3em;"
+                ui.accordion(
+                    ui.accordion_panel('Tweak visuals.',
+                        ui.h6("Scale node size:"),
+                        ui.span(
+                            ui.input_action_button("nodes_smaller_fast", ICONS['big_minus'], class_="btn-light d-flex justify-content-center align-items-center me-1"),
+                            # ui.input_action_button("nodes_smaller", ICONS['minus'], class_="btn-light d-flex justify-content-center align-items-center me-1"),
+                            # ui.input_action_button("nodes_bigger", ICONS['plus'], class_="btn-light d-flex justify-content-center align-items-center me-1"),
+                            ui.input_action_button("nodes_bigger_fast", ICONS['big_plus'], class_="btn-light d-flex justify-content-center align-items-center"),
+                            style="display: flex; flex-wrap: nowrap; gap: 0.3em;"
+                        ),
+                        ui.h6("Scale edge width:"),
+                        ui.span(
+                            ui.input_action_button("edges_thinner", ICONS['big_minus'], class_="btn-light d-flex justify-content-center align-items-center me-1"),
+                            ui.input_action_button("edges_thicker", ICONS['big_plus'], class_="btn-light d-flex justify-content-center align-items-center"),
+                            style="display: flex; flex-wrap: nowrap; gap: 0.3em;"
+                        ),
+                        ui.h6("Scale node-edge width:"),
+                        ui.span(
+                            ui.input_action_button("node_edges_thinner", ICONS['big_minus'], class_="btn-light d-flex justify-content-center align-items-center me-1"),
+                            ui.input_action_button("node_edges_thicker", ICONS['big_plus'], class_="btn-light d-flex justify-content-center align-items-center"),
+                            style="display: flex; flex-wrap: nowrap; gap: 0.3em;"
+                        ),
+                    ),
+                open=False, id='plot_params'
                 ),
             ),
             # 1.2 Changing the type of layout and the geometry of the disk
@@ -651,6 +670,10 @@ def server(input, output, session: Session):
             ui.HTML("By clicking the plus- or minus-buttons, the curvature of the hyperbolic disk can be changed. "
                 "More curvature will allocate more space to the center of the figure, compressing distances towards the edges more.<br>"
                 "Click the home-button to reset curvature."),
+            ui.p(),
+            ui.h5(ui.HTML("Tweak visuals:")),
+            ui.HTML("This expandable tab allows you to change the sizes of the nodes, the width of the node-edge, "
+            "and the thickness of the tree-branches."),
             size="xl",
             easy_close=True,
             fade=True,
@@ -1095,6 +1118,24 @@ def server(input, output, session: Session):
         if input.nodes_smaller_fast() != bv_objct.click_counters['nodes_smaller']:
             scale_nodes = 1/1.5
             bv_objct.click_counters['nodes_smaller'] = input.nodes_smaller_fast()
+        
+        # Determine if edges should be resized
+        scale_edges = None
+        if input.edges_thicker() != bv_objct.click_counters['edges_thicker']:
+            scale_edges = 1.5
+            bv_objct.click_counters['edges_thicker'] = input.edges_thicker()
+        if input.edges_thinner() != bv_objct.click_counters['edges_thinner']:
+            scale_edges = 1/1.5
+            bv_objct.click_counters['edges_thinner'] = input.edges_thinner()
+
+        # Determine if edges should be resized
+        scale_node_edges = None
+        if input.node_edges_thicker() != bv_objct.click_counters['node_edges_thicker']:
+            scale_node_edges = 1.5
+            bv_objct.click_counters['node_edges_thicker'] = input.node_edges_thicker()
+        if input.node_edges_thinner() != bv_objct.click_counters['node_edges_thinner']:
+            scale_node_edges = 1/1.5
+            bv_objct.click_counters['node_edges_thinner'] = input.node_edges_thinner()
 
         # Determine if nodes should be recolored
         if node_style.get() is None:
@@ -1140,14 +1181,16 @@ def server(input, output, session: Session):
         #         n_clusters = input.n_clusters()
         #         # ui.update_slider("curvature", value=0)
 
-        kwarg_list = [geometry, zoom, scale_nodes, origin, node_style_upd,
-                      size_style_upd, ly_type, tweak_inds, new_flip_id,
+        kwarg_list = [geometry, zoom, scale_nodes, scale_edges, origin, node_style_upd,
+                      size_style_upd, ly_type, tweak_inds, new_flip_id, scale_node_edges,
                       multip_angle, ax_lims, zoom_ax_lims, reset_now, renew_mask_fig]
         if any(v is not None for v in kwarg_list) or (bv_objct.bonvis_fig.fig is None):
             update_figure_kwargs.set(dict(
                 geometry=geometry,
                 zoom=zoom,
                 scale_nodes=scale_nodes,
+                scale_edges=scale_edges,
+                scale_node_edges=scale_node_edges,
                 origin=origin,
                 node_style=node_style_upd,
                 size_style=size_style_upd,

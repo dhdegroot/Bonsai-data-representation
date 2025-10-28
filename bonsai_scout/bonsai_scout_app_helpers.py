@@ -132,7 +132,8 @@ class BonvisObject:
                         'tweak': 0, 'flip': 0, 'reset_flip': 0, 'nodes_bigger': 0, 
                         'nodes_smaller': 0, 'more_curve': 0, 'less_curve': 0, 'zoom_in': 0,
                         'zoom_out': 0, 'marker': 0, 'trigger_marker': 0, 'open_marker_gene_warning': 0,
-                        'fig': 0, 'marker_info': 0
+                        'fig': 0, 'marker_info': 0, 'edges_thicker': 0, 'edges_thinner': 0,
+                        'node_edges_thicker': 0, 'node_edges_thinner': 0
                         }
         self.mask_counters = {'temp_mask': [11] * 3,  # Variable to track if mask should be turned off in couple of seconds
                         'redraw_mask': 0,  # tracking number of redraws (in figure) done

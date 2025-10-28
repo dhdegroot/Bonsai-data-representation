@@ -141,7 +141,7 @@ for ind_dim, n_cells_per_clst in enumerate(n_cells_per_clst_list):
     subset_cells = np.arange(0, n_cells, n_cells_per_clst, dtype=int)
     args.input_simulated_dataset = data_path
     args.bonsai_results = os.path.join(results_path, find_latest_tree_folder(results_folder=results_path))
-    args.output_folder = os.path.join('useful_scripts_not_bonsai/simulating_datasets/analyzing_simulated_datasets/results', dataset)
+    args.output_folder = os.path.join('paper_figure_scripts_and_notebooks/simulating_datasets/analyzing_simulated_datasets/results', dataset)
     # args.input_simulated_dataset = 'data/simulated_datasets/simulated_equidistant_clean/simulate_equidistant_{}_clsts_{}_cells_{}_dims_random_times_no_umi_counts_add_noise_2_seed_1231'.format(
     #     n_clsts, n_cells, num_dims)
     # args.bonsai_results = 'results/simulated_datasets/simulated_equidistant_clean/simulate_equidistant_{}_clsts_{}_cells_{}_dims_random_times_no_umi_counts_add_noise_2_seed_1231/final_bonsai_zscore1.0'.format(
@@ -245,7 +245,7 @@ for ind_dim, n_cells_per_clst in enumerate(n_cells_per_clst_list):
     for data_type, distances in dist_dict.items():
         data_id = data_type + ' {}_dims'.format(num_dims)
         datasets.append(
-            Dataset(distances=distances, data_type=data_type, data_id=data_id, color_types=['sanity', 'bonsai', 'pca', 'umap', 'phate']))
+            Dataset(distances=distances, data_type=data_type, data_id=data_id, color_types=['sanity', 'bonsai', 'pca', 'umap', 'phate', 'DTNE']))
         datasets[-1].n_cells_per_clst = n_cells_per_clst
         if data_type[:10] != 'delta_true':
             dist_objcts.append(datasets[-1])
@@ -368,7 +368,7 @@ else:
 plt.tight_layout()
 
 # base_folder = '/Users/Daan/Documents/postdoc/bonsai-development/data/simulated_datasets/simulated_equidistant_clean'
-base_folder = os.path.join('useful_scripts_not_bonsai/simulating_datasets/analyzing_simulated_datasets/results', args.input_folder)
+base_folder = os.path.join('paper_figure_scripts_and_notebooks/simulating_datasets/analyzing_simulated_datasets/results', args.input_folder)
 
 plt.savefig(os.path.join(base_folder, "SI_tree_better_at_more_cells_new.svg"))
 plt.savefig(os.path.join(base_folder, "SI_tree_better_at_more_cells_new.png"), dpi=300)

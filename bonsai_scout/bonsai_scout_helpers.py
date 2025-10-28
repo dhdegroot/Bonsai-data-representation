@@ -354,8 +354,8 @@ class Bonvis_settings:
         self.transf_info = Transf_info(geometry=geometry, origin_style=origin_style)
         self.set_ly_type(ly_type)
         feature_path = bonvis_metadata.feature_paths[0] if len(bonvis_metadata.feature_paths) else None
-        self.node_style = {'radius_int': 0.005, 'radius_cell': 0.015, 'edgecolor': blackish, 'lw_int': .02,
-                           'lw_cell': .02, 'color_int': gray, 'radius_int_data': 0.010,
+        self.node_style = {'radius_int': 0.005, 'radius_cell': 0.015, 'edgecolor': blackish, 'lw_int': .04,
+                           'lw_cell': .08, 'color_int': gray, 'radius_int_data': 0.010,
                            'verts_masked': None, 'cells_masked': None, 'use_mask': False, 'gradient_type': 'YlOrRd',
                            'feature_path': feature_path}
         self.celltype_info = Celltype_info(cell_info_dict=bonvis_metadata.cell_info['cell_info_dict'],
@@ -956,12 +956,17 @@ class Bonvis_figure:
             min_vert_size = np.min(non_int_vert_to_size)
             if max_vert_size < 8:
                 max_rescaling = 1.5
+            else:
+                max_rescaling = min(np.sqrt(max_vert_size/min_vert_size), 8)
             # if len(np.unique(vert_to_size_raw)) == 2:
             #     max_rescaling = 1
             if max_vert_size != min_vert_size:
                 vert_to_size[self.bonvis_metadata.cell_info['non_int_vert_inds']] = node_style['radius_cell'] * (
                             1 + np.sqrt(
                         (non_int_vert_to_size - min_vert_size) / (max_vert_size - min_vert_size)) * (max_rescaling - 1))
+                # vert_to_size[self.bonvis_metadata.cell_info['non_int_vert_inds']] = node_style['radius_cell'] * (
+                #             1 + np.log(1 + (np.exp(1) - 1) *
+                #         (non_int_vert_to_size - min_vert_size) / (max_vert_size - min_vert_size)) * (max_rescaling - 1))
             else:
                 vert_to_size[self.bonvis_metadata.cell_info['non_int_vert_inds']] = np.ones_like(non_int_vert_to_size) * \
                                                                                     node_style['radius_cell']
@@ -1075,11 +1080,13 @@ class Bonvis_figure:
             else:
                 if node_style['verts_masked'] is None:
                     verts_masked = []
-                    if node_style['cells_masked'] is not None:
+                    if (node_style['cells_masked'] is not None) and (len(node_style['cells_masked']) != 0):
                         cell_ind_to_vert_ind = np.array(
                             self.bonvis_metadata.cell_info['cell_info_dict']['cell_ind_to_vert_ind'])
                         verts_masked = list(cell_ind_to_vert_ind[np.array(node_style['cells_masked'])])
                         verts_masked = np.union1d(verts_masked, self.bonvis_metadata.cell_info['int_vert_inds'])
+                    elif node_style['cells_masked'] is not None: # avoid problematic array indexing for empty mask
+                        verts_masked = self.bonvis_metadata.cell_info['int_vert_inds']
                     cell_to_celltype = cell_to_celltype.astype(str)
                     cell_to_celltype[verts_masked] = np.nan
                     cell_to_color[verts_masked] = masked_color
@@ -1099,18 +1106,19 @@ class Bonvis_figure:
 
     def update_figure(self, geometry=None, zoom=None, click=None, node_style=None, size_style=None, scale_nodes=None,
                       origin=None, ly_type=None, tweak_inds=None, multip_angle=None, reset_layout=None, ax_lims=None,
-                      zoom_ax_lims=None, renew_mask=False, verbose=True,
+                      zoom_ax_lims=None, renew_mask=False, verbose=True, scale_edges=None, scale_node_edges=None,
                       flipped_node_ids=[], new_flip_id=False):
         # TODO: Eventually remove this print-statement, nice for debugging
         if verbose:
             logging.info(
-                'geometry={}, zoom={}, click={}, node_style={}, size_style={}, scale_nodes={}, origin={}, ly_type={}, '
+                'geometry={}, zoom={}, click={}, node_style={}, size_style={}, scale_nodes={}, scale_edges={}, '
+                'scale_node_edges={}, origin={}, ly_type={}, '
                 'tweak_inds={}, multip_angle={}, reset_layout={}, ax_lims={}, zoom_ax_lims={}, renew_mask={}, '
                 'flipped_node_ids={}, new_flip_id={}'.format(
                     geometry, zoom, click,
                     node_style,
                     size_style,
-                    scale_nodes, origin,
+                    scale_nodes, scale_edges, scale_node_edges, origin,
                     ly_type, tweak_inds,
                     multip_angle,
                     reset_layout, ax_lims, zoom_ax_lims,
@@ -1126,6 +1134,7 @@ class Bonvis_figure:
         update_fig_coords = False
         update_sizes = False
         update_bg = False
+        update_edges = False
 
         # Define some pointers for easier syntax
         transf_info = self.bonvis_settings.transf_info
@@ -1254,6 +1263,15 @@ class Bonvis_figure:
             self.bonvis_settings.node_style['lw_int'] *= scale_nodes
             self.bonvis_settings.node_style['lw_cell'] *= scale_nodes
 
+        if scale_edges is not None:
+            update_edges = True
+            self.bonvis_settings.edge_style['linewidth'] *= scale_edges
+
+        if scale_node_edges is not None:
+            update_sizes = True
+            self.bonvis_settings.node_style['lw_int'] *= scale_node_edges
+            self.bonvis_settings.node_style['lw_cell'] *= scale_node_edges
+
         if node_style is not None:
             old_annot_type = self.bonvis_settings.node_style['annot_info'].annot_type
             annot_info = find_annot(new_annot_label=node_style, bonvis_settings=self.bonvis_settings,
@@ -1293,6 +1311,8 @@ class Bonvis_figure:
             if (curr_geom == 'hyperbolic'):
                 self.update_bg()
             # self.update_bg()
+        if update_edges:
+            self.get_edge_collection()
         if update_sizes:
             self.get_node_collection()
             update_colors = False

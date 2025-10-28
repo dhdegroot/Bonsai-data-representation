@@ -169,7 +169,7 @@ class SCData:
         ltqStdsFound, originalData = self.read_in_data(filenamesData=filenamesData, verbose=verbose,
                                                        noDataNeeded=noDataNeeded, sanityOutput=sanityOutput,
                                                        getOrigData=getOrigData or (not createStarTree),
-                                                       zscoreCutoff=zscoreCutoff, mpiInfo=mpiInfo)
+                                                       zscoreCutoff=zscoreCutoff, mpiInfo=mpiInfo, all_genes=all_genes)
         if mpiInfo.rank != 0:
             return
         # if returnUncorrected:
@@ -1098,7 +1098,7 @@ class SCData:
 
     # Used
     def read_in_data(self, filenamesData=None, getOrigData=False, verbose=False, noDataNeeded=False, sanityOutput=False,
-                     zscoreCutoff=-1, mpiInfo=None):
+                     zscoreCutoff=-1, mpiInfo=None, all_genes=False):
         if mpiInfo is None:
             mpi_wrapper.get_mpi_info()
         originalData = OriginalData()
@@ -1119,7 +1119,7 @@ class SCData:
             self.metadata.nCells, \
             self.metadata.nGenes, genes_to_keep, ltqStdsFound, \
             n_genes_orig = read_and_filter(self.data_path(), filenameMeans, filenameStds, sanityOutput,
-                                           zscoreCutoff, mpiInfo, verbose=verbose)
+                                           zscoreCutoff, mpiInfo, verbose=verbose, all_genes=all_genes)
 
         except FileNotFoundError:
             if noDataNeeded:
@@ -2257,7 +2257,7 @@ def loglik_given_true_var_log(true_var_log, inferred_vals, inferred_vars):
         np.sum(alpha))  # the middle term was missing in the other implementation
 
 
-def read_and_filter(data_folder, meansfile, stdsfile, sanityOutput, zscoreCutoff, mpiInfo, verbose=False):
+def read_and_filter(data_folder, meansfile, stdsfile, sanityOutput, zscoreCutoff, mpiInfo, verbose=False, all_genes=False):
     """
     Reads in means and standard deviations line by line (i.e per gene/feature), possibly parallelized over multiple
     processes. For each gene, we determine if it makes the zscore-cutoff before adding it to the data to save memory.
@@ -2279,7 +2279,10 @@ def read_and_filter(data_folder, meansfile, stdsfile, sanityOutput, zscoreCutoff
 
     # Define cutoff for how close the variances on LTQs can be to the true variances before throwing out a gene.
     # In error-less data, variances on the LTQ-posterior should always be smaller than the true variance
-    divide_out_prior_cutoff = 1e-4
+    if not all_genes:
+        divide_out_prior_cutoff = 1e-4
+    else:
+        divide_out_prior_cutoff = -1
 
     if sanityOutput:
         mp_print("Since the argument '--input_is_sanity_output' is 'True', "
@@ -2395,6 +2398,7 @@ def read_and_filter(data_folder, meansfile, stdsfile, sanityOutput, zscoreCutoff
                             denominator_factor = gene_var - vars
                             if np.any(denominator_factor < divide_out_prior_cutoff):
                                 continue
+                            denominator_factor = np.maximum(denominator_factor, 1e-6)
 
                             # factor = priorVariances[genes_to_keep, np.newaxis] / denominatorFactor[genes_to_keep, :]
                             factor = gene_var / denominator_factor
