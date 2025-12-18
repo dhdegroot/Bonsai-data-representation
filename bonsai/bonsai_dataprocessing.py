@@ -1027,6 +1027,10 @@ class SCData:
                             except:
                                 print("Could not convert nans in column {}.".format(col))
                             annotation_df[col] = pd.Categorical(annotation_df[col])
+
+                            if col.startswith("num_"):
+                                col = col.replace("num_", "usernum_")
+
                             new_colnames.append(
                                 'annot_{}'.format(col.replace(' ', '_').replace('-', '_').replace('.', '_')))
                     annotation_df.columns = new_colnames
@@ -2440,6 +2444,7 @@ def read_and_filter(data_folder, meansfile, stdsfile, sanityOutput, zscoreCutoff
                             log_v0 = 0
                         opt_res = minimize(neg_loglik_grad_using_measurements_and_errors, x0=log_v0,
                                            jac=True, args=(means, vars, False))
+                                           #jac=True, args=(means, vars, False), tol=0.0001) # sarah: changed tol for full posterior
                         inferred_gene_var = np.exp(opt_res.x[0])
                         if not opt_res.success:
                             mp_print("Could not optimize variance for feature {}.\n"
