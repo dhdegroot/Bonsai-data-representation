@@ -10,26 +10,41 @@ parser = ArgumentParser(
     description='Simulates a binary tree.')
 
 # Arguments that define where to find the data and where to store results. Also, whether data comes from Sanity or not
-parser.add_argument('--input_dataset', type=str, default='data/Zeisel_genes/Gene_table.txt',
+parser.add_argument('--input_dataset', type=str,
                     help='Path to original UMI-count  mtx file. genes x cells')
+parser.add_argument('--input_dataset_txt', type=str,
+                    help='Path to original UMI-count  txt file. genes x cells, with gene and cell ids')
 parser.add_argument('--input_annotation', type=str, required=True,
                     help='Path to cell type annotation, with header, can be multiple columns, tab separated')
 parser.add_argument('--input_genes', type=str,required=True,
                     help='Path to gene annotation, no header, one column')
-parser.add_argument('--results_folder', type=str, default='data/additional_data/zeisel_pseudobulk',
+parser.add_argument('--results_folder', type=str,
                     help="Relative path from bonsai_development to base-folder where simulated trees need to be stored.")
 
 args = parser.parse_args()
 print(args)
 
 
-print("reading in mtx file {}".format(args.input_dataset))
-gene_expression = mmread(args.input_dataset).toarray()
+if args.input_dataset:
+    print("reading in mtx file {}".format(args.input_dataset))
+    gene_expression = mmread(args.input_dataset).toarray()
+elif args.input_dataset_txt:
+    print("reading in txt file {}".format(args.input_dataset_txt))
+    gene_expression = pd.read_csv(args.input_dataset_txt, sep='\t', index_col=0)
+    gene_expression = gene_expression.to_numpy()
+else:
+    print("no input dataset")
+    exit
+
+print(gene_expression.shape)
 
 if args.input_annotation is not None:
-    annot_df = pd.read_csv(args.input_annotation, sep='\t')
+    # annot_df = pd.read_csv(args.input_annotation, sep='\t')
+    annot_df = pd.read_csv(args.input_annotation, sep=',')
+    print(annot_df.shape)
 if args.input_genes is not None:
     genes_df = pd.read_csv(args.input_genes, header=None, names=["geneName"])
+    print(genes_df.shape)
 
 print("creating anndata object")
 
@@ -81,7 +96,8 @@ if not os.path.exists(save_dir):
 print("will save in: {}".format(save_dir))
 np.savetxt(os.path.join(save_dir, "features.txt"), X_log1p_hvg.T, delimiter="\t")
 np.savetxt(os.path.join(save_dir, "geneID.txt"), hvg_genes.values, fmt="%s")
-np.savetxt(os.path.join(save_dir, "cellID.txt"), adata.obs["cellbarcode_full"].values, fmt="%s")
+np.savetxt(os.path.join(save_dir, "cellID.txt"), adata.obs["Unnamed: 0"].values, fmt="%s")
+#np.savetxt(os.path.join(save_dir, "cellID.txt"), adata.obs["cellbarcode_full"].values, fmt="%s")
 
 
 
