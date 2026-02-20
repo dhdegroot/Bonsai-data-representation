@@ -20,7 +20,7 @@ def store_ds_info(tree_node, vert_ind_to_node, leaf_ltqs, leaf_ind):
     return vert_ind_to_node, leaf_ltqs, leaf_ind
 
 
-def calc_marker_genes(tree, gene_ids, n_marker_genes=5, verbose=True):
+def calc_marker_genes(tree, gene_ids, min_marker_genes=10, marker_cutoff=.9, verbose=True):
     if tree.root.childNodes[0].parentNode is None:
         tree.root.storeParent()
 
@@ -38,13 +38,14 @@ def calc_marker_genes(tree, gene_ids, n_marker_genes=5, verbose=True):
         if node.isRoot:
             continue
         marker_genes = calc_marker_genes_single(node.ds_leaf_inds, n_leafs, gene_ids, leaf_ranks_per_gene,
-                                                n_marker_genes=n_marker_genes)
+                                                min_marker_genes=min_marker_genes, marker_cutoff=marker_cutoff)
         marker_genes_dict[(node.parentNode.vert_ind, vert_ind)] = marker_genes
 
     return marker_genes_dict
 
 
-def calc_marker_genes_single(ds_leaf_inds, n_leafs, gene_ids, leaf_ranks_per_gene, gene_subset=None, n_marker_genes=10):
+def calc_marker_genes_single(ds_leaf_inds, n_leafs, gene_ids, leaf_ranks_per_gene, gene_subset=None,
+                             min_marker_genes=10, marker_cutoff=.9):
     """
 
     :param ds_leaf_inds:
@@ -53,7 +54,6 @@ def calc_marker_genes_single(ds_leaf_inds, n_leafs, gene_ids, leaf_ranks_per_gen
     :param leaf_ranks_per_gene: This should be a matrix with dimensions n_genes x n_leafs giving for each gene the rank
     that the leaf would get if we would sort the leafs by that gene.
     Can be obtained using: np.argsort(np.argsort(leaf_ltqs, axis=1), axis=1)
-    :param n_marker_genes:
     :return:
     """
     # for each node go over all genes and calculate the marker-score
@@ -70,16 +70,31 @@ def calc_marker_genes_single(ds_leaf_inds, n_leafs, gene_ids, leaf_ranks_per_gen
         summed_ranks = np.sum(leaf_ranks_per_gene[:, ds_leaf_inds], axis=1)
     # marker_scores = 1 + (card_C1 - 1) / (2 * card_C2) - summed_ranks / (card_C1 * card_C2)
     marker_scores = - (card_C1 - 1) / (2 * card_C2) + summed_ranks / (card_C1 * card_C2)
-    top_high_genes = list(np.argpartition(marker_scores, n_marker_genes)[:n_marker_genes-1])
-    top_low_genes = list(np.argpartition(-marker_scores, n_marker_genes)[:n_marker_genes-1])
-    marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
+
+    if len(marker_scores) < 2 * min_marker_genes:
+        marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in range(len(marker_scores))}
+    else:
+        top_high_genes = list(np.where(marker_scores > marker_cutoff)[0])
+        if len(top_high_genes) < min_marker_genes:
+            top_high_genes = list(np.argpartition(marker_scores, min_marker_genes)[:min_marker_genes - 1])
+
+        top_low_genes = list(np.where(marker_scores < (1 - marker_cutoff))[0])
+        if len(top_low_genes) < min_marker_genes:
+            top_low_genes = list(np.argpartition(-marker_scores, min_marker_genes)[:min_marker_genes - 1])
+
+        marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
+
+    # top_high_genes = list(np.argpartition(marker_scores, n_marker_genes)[:n_marker_genes-1])
+    # top_low_genes = list(np.argpartition(-marker_scores, n_marker_genes)[:n_marker_genes-1])
+    # marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
     if gene_subset is not None:
         marker_genes = {gene_subset[gene_ind]: marker_score for gene_ind, marker_score in marker_genes.items()}
     marker_genes = {gene_ids[gene_ind]: marker_score for gene_ind, marker_score in marker_genes.items()}
     return marker_genes
 
 
-def calc_marker_genes_double(ds_leaf_inds_1, ds_leaf_inds_2, n_leafs, gene_ids, leaf_ranks_per_gene, gene_subset=None, n_marker_genes=10):
+def calc_marker_genes_double(ds_leaf_inds_1, ds_leaf_inds_2, n_leafs, gene_ids, leaf_ranks_per_gene, gene_subset=None,
+                             min_marker_genes=10, marker_cutoff=0.9):
     """
 
     :param ds_leaf_inds:
@@ -88,7 +103,6 @@ def calc_marker_genes_double(ds_leaf_inds_1, ds_leaf_inds_2, n_leafs, gene_ids, 
     :param leaf_ranks_per_gene: This should be a matrix with dimensions n_genes x n_leafs giving for each gene the rank
     that the leaf would get if we would sort the leafs by that gene.
     Can be obtained using: np.argsort(np.argsort(leaf_ltqs, axis=1), axis=1)
-    :param n_marker_genes:
     :return:
     """
     # for each node go over all genes and calculate the marker-score
@@ -112,16 +126,30 @@ def calc_marker_genes_double(ds_leaf_inds_1, ds_leaf_inds_2, n_leafs, gene_ids, 
     # marker_scores1 = 1 + (card_C1 - 1) / (2 * card_C2) - summed_ranks / (card_C1 * card_C2)
     marker_scores = - (card_C1 - 1) / (2 * card_C2) + summed_ranks / (card_C1 * card_C2)
     # print(marker_scores1[:10] + marker_scores2[:10])
-    top_high_genes = list(np.argpartition(marker_scores, n_marker_genes)[:n_marker_genes-1])
-    top_low_genes = list(np.argpartition(-marker_scores, n_marker_genes)[:n_marker_genes-1])
-    marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
+    if len(marker_scores) < 2 * min_marker_genes:
+        marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in range(len(marker_scores))}
+    else:
+        top_high_genes = list(np.where(marker_scores > marker_cutoff)[0])
+        if len(top_high_genes) < min_marker_genes:
+            top_high_genes = list(np.argpartition(marker_scores, min_marker_genes)[:min_marker_genes - 1])
+
+        top_low_genes = list(np.where(marker_scores < (1 - marker_cutoff))[0])
+        if len(top_low_genes) < min_marker_genes:
+            top_low_genes = list(np.argpartition(-marker_scores, min_marker_genes)[:min_marker_genes - 1])
+
+        marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
+
+    # top_high_genes = list(np.argpartition(marker_scores, n_marker_genes)[:n_marker_genes-1])
+    # top_low_genes = list(np.argpartition(-marker_scores, n_marker_genes)[:n_marker_genes-1])
+    # marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
     if gene_subset is not None:
         marker_genes = {gene_subset[gene_ind]: marker_score for gene_ind, marker_score in marker_genes.items()}
     marker_genes = {gene_ids[gene_ind]: marker_score for gene_ind, marker_score in marker_genes.items()}
     return marker_genes
 
 
-def calc_marker_genes_error_bars(indices1, indices2, means, vars, gene_ids=None, n_marker_genes=10, n_cells_per_object=None):
+def calc_marker_genes_error_bars(indices1, indices2, means, vars, gene_ids=None, min_marker_genes=10,
+                                 marker_cutoff=.9, n_cells_per_object=None):
     a_mu = means.T
     a_var = vars.T
 
@@ -168,9 +196,26 @@ def calc_marker_genes_error_bars(indices1, indices2, means, vars, gene_ids=None,
     # Normalize scores
     marker_scores = weighted_sum / total_weight
 
-    top_high_genes = list(np.argpartition(marker_scores, n_marker_genes)[:n_marker_genes - 1])
-    top_low_genes = list(np.argpartition(-marker_scores, n_marker_genes)[:n_marker_genes - 1])
-    marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
+    if len(marker_scores) < 2 * min_marker_genes:
+        marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in range(len(marker_scores))}
+    else:
+        top_high_genes = list(np.where(marker_scores > marker_cutoff)[0])
+        if len(top_high_genes) < min_marker_genes:
+            top_high_genes = list(np.argpartition(marker_scores, min_marker_genes)[:min_marker_genes - 1])
+
+        top_low_genes = list(np.where(marker_scores < (1 - marker_cutoff))[0])
+        if len(top_low_genes) < min_marker_genes:
+            top_low_genes = list(np.argpartition(-marker_scores, min_marker_genes)[:min_marker_genes - 1])
+
+        marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
+
+    # top_high_genes = list(np.argpartition(marker_scores, n_marker_genes)[:n_marker_genes-1])
+    # top_low_genes = list(np.argpartition(-marker_scores, n_marker_genes)[:n_marker_genes-1])
+    # marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
+
+    # top_high_genes = list(np.argpartition(marker_scores, n_marker_genes)[:n_marker_genes - 1])
+    # top_low_genes = list(np.argpartition(-marker_scores, n_marker_genes)[:n_marker_genes - 1])
+    # marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
     # if gene_subset is not None:
     #     marker_genes = {gene_subset[gene_ind]: marker_score for gene_ind, marker_score in marker_genes.items()}
     if gene_ids is not None:
@@ -180,7 +225,8 @@ def calc_marker_genes_error_bars(indices1, indices2, means, vars, gene_ids=None,
     return marker_genes
 
 
-def calc_marker_genes_error_bars_approx(indices1, indices2, means, vars, gene_ids=None, n_marker_genes=10, n_cells_per_object=None):
+def calc_marker_genes_error_bars_approx(indices1, indices2, means, vars, gene_ids=None, min_marker_genes=10,
+                                        marker_cutoff=.9, n_cells_per_object=None):
     """
     Gets marker genes. Probability per gene that the gene is higher expressed in c_1 than in c_2, when we take a random
     cell from C_1, and a random cell from C_2.
@@ -189,7 +235,6 @@ def calc_marker_genes_error_bars_approx(indices1, indices2, means, vars, gene_id
     :param means:
     :param vars:
     :param gene_ids:
-    :param n_marker_genes:
     :param n_cells_per_object:
     :return:
     """
@@ -230,9 +275,22 @@ def calc_marker_genes_error_bars_approx(indices1, indices2, means, vars, gene_id
 
         marker_scores[gene] = np.dot(pdf_g1, cdf_g2) * dx / (num_cells1 * num_cells2)
 
-    top_high_genes = list(np.argpartition(marker_scores, n_marker_genes)[:n_marker_genes - 1])
-    top_low_genes = list(np.argpartition(-marker_scores, n_marker_genes)[:n_marker_genes - 1])
-    marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
+    if len(marker_scores) < 2 * min_marker_genes:
+        marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in range(len(marker_scores))}
+    else:
+        top_high_genes = list(np.where(marker_scores > marker_cutoff)[0])
+        if len(top_high_genes) < min_marker_genes:
+            top_high_genes = list(np.argpartition(marker_scores, min_marker_genes)[:min_marker_genes - 1])
+
+        top_low_genes = list(np.where(marker_scores < (1 - marker_cutoff))[0])
+        if len(top_low_genes) < min_marker_genes:
+            top_low_genes = list(np.argpartition(-marker_scores, min_marker_genes)[:min_marker_genes - 1])
+
+        marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
+
+    # top_high_genes = list(np.argpartition(marker_scores, n_marker_genes)[:n_marker_genes - 1])
+    # top_low_genes = list(np.argpartition(-marker_scores, n_marker_genes)[:n_marker_genes - 1])
+    # marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
     # if gene_subset is not None:
     #     marker_genes = {gene_subset[gene_ind]: marker_score for gene_ind, marker_score in marker_genes.items()}
     if gene_ids is not None:
@@ -242,7 +300,8 @@ def calc_marker_genes_error_bars_approx(indices1, indices2, means, vars, gene_id
     return marker_genes
 
 
-def calc_marker_genes_error_bars_approx2(indices1, indices2, means, vars, gene_ids=None, n_marker_genes=None, n_cells_per_object=None, n_points_total=None):
+def calc_marker_genes_error_bars_approx2(indices1, indices2, means, vars, gene_ids=None, min_marker_genes=10,
+                                         marker_cutoff=.9, n_cells_per_object=None, n_points_total=None):
     """
     Gets marker genes. Probability per gene that the gene is higher expressed in c_1 than in c_2, when we take a random
     cell from C_1, and a random cell from C_2.
@@ -251,7 +310,6 @@ def calc_marker_genes_error_bars_approx2(indices1, indices2, means, vars, gene_i
     :param means:
     :param vars:
     :param gene_ids:
-    :param n_marker_genes:
     :param n_cells_per_object:
     :return:
     """
@@ -325,12 +383,26 @@ def calc_marker_genes_error_bars_approx2(indices1, indices2, means, vars, gene_i
         # tested = (np.sum(pdf_g1) * dx)/num_cells1
         # marker_scores[gene] = np.dot(pdf_g1, cdf_g2) * dx / (num_cells1 * num_cells2)
 
-    if n_marker_genes is not None:
-        top_high_genes = list(np.argpartition(marker_scores, n_marker_genes)[:n_marker_genes - 1])
-        top_low_genes = list(np.argpartition(-marker_scores, n_marker_genes)[:n_marker_genes - 1])
-        marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
-    else:
+    if len(marker_scores) < 2 * min_marker_genes:
         marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in range(len(marker_scores))}
+    else:
+        top_high_genes = list(np.where(marker_scores > marker_cutoff)[0])
+        if len(top_high_genes) < min_marker_genes:
+            top_high_genes = list(np.argpartition(marker_scores, min_marker_genes)[:min_marker_genes - 1])
+
+        top_low_genes = list(np.where(marker_scores < (1 - marker_cutoff))[0])
+        if len(top_low_genes) < min_marker_genes:
+            top_low_genes = list(np.argpartition(-marker_scores, min_marker_genes)[:min_marker_genes - 1])
+
+        marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
+
+    # if n_marker_genes is not None:
+    #     top_high_genes = list(np.argpartition(marker_scores, n_marker_genes)[:n_marker_genes - 1])
+    #     top_low_genes = list(np.argpartition(-marker_scores, n_marker_genes)[:n_marker_genes - 1])
+    #     marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
+    # else:
+    #     marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in range(len(marker_scores))}
+
     # if gene_subset is not None:
     #     marker_genes = {gene_subset[gene_ind]: marker_score for gene_ind, marker_score in marker_genes.items()}
     if gene_ids is not None:
@@ -369,12 +441,13 @@ def load_marker_genes(filepath):
     return marker_genes_dict
 
 
-def get_marker_genes(filepath=None, store=True, recalc=False, tree=None, gene_ids=None, n_marker_genes=10, verbose=True):
+def get_marker_genes(filepath=None, store=True, recalc=False, tree=None, gene_ids=None, min_marker_genes=10,
+                     marker_cutoff=.9, verbose=True):
     if (filepath is not None) and (os.path.exists(filepath)) and not recalc:
         marker_genes_dict = load_marker_genes(filepath)
     elif (tree is not None) and (gene_ids is not None):
-        marker_genes_dict = calc_marker_genes(tree=tree, gene_ids=gene_ids, n_marker_genes=n_marker_genes,
-                                              verbose=verbose)
+        marker_genes_dict = calc_marker_genes(tree=tree, gene_ids=gene_ids, min_marker_genes=min_marker_genes,
+                                              marker_cutoff=marker_cutoff, verbose=verbose)
         if store:
             store_marker_genes(filepath, marker_genes_dict)
     else:
@@ -442,9 +515,9 @@ if __name__ == '__main__':
     """Below you can do your postprocessing, change the tree, if you want."""
     # The following sets for every node on the tree, how many marker genes will be identified that are high expressed
     # on the downstream leafs, and as many marker genes for all other leafs
-    n_marker_genes = 5
+    min_marker_genes = 5
     get_marker_genes(os.path.join(scData.result_path(), 'marker_genes.csv'), store=True, recalc=False, tree=scData.tree,
-                     gene_ids=scData.metadata.geneIds, n_marker_genes=5)
+                     gene_ids=scData.metadata.geneIds, min_marker_genes=5, marker_cutoff=.9)
 
     # marker_genes_dict = calc_marker_genes(scData.tree, scData.metadata.geneIds, n_marker_genes=n_marker_genes)
     #

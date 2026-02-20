@@ -2050,7 +2050,8 @@ def update_marker_genes_df(run_with_vars, marker_genes_tuple):
         marker_genes = calc_marker_genes_error_bars_approx2(indices1=ds_cell_inds_1, indices2=ds_cell_inds_2,
                                                             means=means,
                                                             vars=vars, gene_ids=gene_ids, n_points_total=n_points,
-                                                            n_marker_genes=10)
+                                                            min_marker_genes=10,
+                                                            marker_cutoff=.9)
     else:
         # ds_cell_inds_1, ds_cell_inds_2, n_cells, gene_ids, ranks_per_gene, variation_features, cells_wo_nan = marker_genes_tuple
         bonvis_data_path, ds_cell_inds_1, ds_cell_inds_2, n_cells, gene_ids, ranks_per_gene_path, variation_features, cells_wo_nan = marker_genes_tuple
@@ -2059,14 +2060,16 @@ def update_marker_genes_df(run_with_vars, marker_genes_tuple):
         if ds_cell_inds_2 is None:
             print("Starting the calc_marker_genes_single")
             marker_genes = calc_marker_genes_single(ds_cell_inds_1, n_cells, gene_ids, ranks_per_gene,
-                                                    n_marker_genes=10,
+                                                    min_marker_genes=10,
+                                                    marker_cutoff=.9,
                                                     gene_subset=variation_features)
         else:
             print("Starting the calc_marker_genes_double")
             ds_cell_inds_2 = np.intersect1d(ds_cell_inds_2, cells_wo_nan)
             marker_genes = calc_marker_genes_double(ds_cell_inds_1, ds_cell_inds_2, n_cells, gene_ids,
                                                     ranks_per_gene,
-                                                    n_marker_genes=10,
+                                                    min_marker_genes=10,
+                                                    marker_cutoff=.9,
                                                     gene_subset=variation_features)
 
     marker_genes_df = pd.DataFrame.from_dict(marker_genes, orient='index', columns=['marker_scores'])

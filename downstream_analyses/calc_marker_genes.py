@@ -79,7 +79,7 @@ if __name__ == '__main__':
         marker_genes = calc_marker_genes_error_bars_approx2(indices1=ds_cell_inds_1, indices2=ds_cell_inds_2,
                                                             means=means,
                                                             vars=vars, gene_ids=gene_ids, n_points_total=n_points,
-                                                            n_marker_genes=None)
+                                                            min_marker_genes=10, marker_cutoff=.5)
 
     else:
         # Note that we only get ranks for cells that have no nan-value for any gene
@@ -94,13 +94,14 @@ if __name__ == '__main__':
 
         if len(ds_cell_inds_2) == 0:
             marker_genes = calc_marker_genes_single(ds_cell_inds_1, n_cells, gene_ids, ranks_per_gene,
-                                                    n_marker_genes=10,
+                                                    min_marker_genes=10, marker_cutoff=.5,
                                                     gene_subset=variation_features)
         else:
             ds_cell_inds_2 = np.intersect1d(ds_cell_inds_2, cells_wo_nan)
             marker_genes = calc_marker_genes_double(ds_cell_inds_1, ds_cell_inds_2, n_cells, gene_ids,
                                                     ranks_per_gene,
-                                                    n_marker_genes=10,
+                                                    min_marker_genes=10,
+                                                    marker_cutoff=.5,
                                                     gene_subset=variation_features)
 
     # Do the postprocessing to store the marker genes in a tsv file
