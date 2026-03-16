@@ -8,7 +8,6 @@ import os, sys, psutil, gc
 # import tracemalloc
 #
 # tracemalloc.start()
-
 parent_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 # Add the parent directory of this script-file to sys.path
 sys.path.append(parent_dir)
@@ -34,6 +33,11 @@ parser.add_argument('--pickup_intermediate', type=str2bool, default=False,
                     help='Optional: Set this argument to true if Bonsai needs to search in the indicated results-folder'
                          'for the furthest developed tree reconstruction, and pick it up from there. If this argument'
                          'is True, it over-rules the same argument in bonsai_config.yaml, and the other way around.')
+parser.add_argument( ### FMK extension: allow forcing restart without tmp-folder recovery
+    "--no_resume",
+    type=str2bool, default=False,
+    help="Start Bonsai from scratch"
+)
 
 # TODO: To be removed
 parser.add_argument('--store_all_nwk_folder', type=str, default='',
@@ -119,6 +123,7 @@ parser.add_argument('--print_annotations', type=str, default='',
 args = parser.parse_args()
 
 pickup_intermediate = args.pickup_intermediate
+no_resume = args.no_resume ### FMK extension: allow forcing restart without tmp-folder recovery
 # TODO: Remove
 store_all_nwk_folder = args.store_all_nwk_folder
 print_annotations = args.print_annotations
@@ -127,6 +132,9 @@ args = Run_Configs(args.config_filepath, step=args.step)
 
 if pickup_intermediate:
     args.pickup_intermediate = True
+
+if no_resume: ### FMK extension: allow forcing restart without tmp-folder recovery
+    args.no_resume = True
 
 import bonsai.mpi_wrapper as mpi_wrapper
 from bonsai.bonsai_dataprocessing import initializeSCData, getMetadata, loadReconstructedTreeAndData, SCData, \
@@ -189,8 +197,9 @@ if args.step in ['preprocess', 'all']:
 
     if not preprocessing_done:
         # Read in data and do initial time optimisation for star-tree
-        if len(args.tmp_folder):
+        if len(args.tmp_folder) and not args.no_resume: ### FMK extension: allow forcing restart without tmp-folder recovery
             if os.path.isdir(args.tmp_folder):
+                mp_print(f"Attempting to resume from {args.tmp_folder}")
                 # scData = recoverTmpTree(args, args.tmp_folder, optimizeTimes=True)
                 scData = loadReconstructedTreeAndData(args, args.tmp_folder, all_genes=False, get_cell_info=False,
                                                       corrected_data=True)

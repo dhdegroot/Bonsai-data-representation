@@ -71,6 +71,7 @@ class Run_Configs:
                          'skip_reorder_edges': False,
                          'pickup_intermediate': False,
                          'tmp_folder': None,
+                         'no_resume': False, ### FMK extension: allow forcing restart without tmp-folder recovery
                          'spr_strategy': 'large_tree'}
 
         if create_empty_configs:
