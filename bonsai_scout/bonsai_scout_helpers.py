@@ -1,11 +1,11 @@
 import numpy as np
 from scipy import optimize
 import pandas as pd
+import matplotlib
+matplotlib.use('Agg')  # Set non-interactive backend for web apps
 import matplotlib.pyplot as plt
 
 plt.set_loglevel(level='warning')
-
-import matplotlib
 import re
 import itertools
 import time
