@@ -47,6 +47,19 @@ logger = logging.getLogger("myapp")
 logger.setLevel(log_level)
 
 
+def _json_safe(value):
+    """Recursively convert NumPy objects to plain Python JSON-safe types."""
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, dict):
+        return {key: _json_safe(val) for key, val in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 class Celltype_info:
     annot_alts = None
     annot_infos = None
@@ -432,7 +445,7 @@ class Bonvis_settings:
         self.upd_edge_coords = {}
 
     def to_json(self, settings_path):
-        self_dict = self.to_dict()
+        self_dict = _json_safe(self.to_dict())
         with open(settings_path, "w") as json_file:
             logger.info("Storing settings in {}.".format(settings_path))
             json.dump(self_dict, json_file, indent=4)

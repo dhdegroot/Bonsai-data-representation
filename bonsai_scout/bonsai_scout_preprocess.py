@@ -26,6 +26,17 @@ parent_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.append(parent_dir)
 os.chdir(parent_dir)
 
+if sys.platform == "win32":
+    import types
+    m = types.ModuleType("resource")
+    m.RLIMIT_AS = 0
+    m.RUSAGE_SELF = 0
+    m.getrusage = lambda x: types.SimpleNamespace(
+        ru_maxrss=0, ru_utime=0, ru_stime=0
+    )
+    m.setrlimit = lambda x, y: None
+    sys.modules["resource"] = m
+
 from bonsai.bonsai_helpers import str2bool, Run_Configs, find_latest_tree_folder, mp_print
 from downstream_analyses.get_clusters_max_diameter import get_min_pdists_clustering_from_nwk_str, \
     get_cluster_assignments, get_annotation_based_clustering_from_nwk_str
