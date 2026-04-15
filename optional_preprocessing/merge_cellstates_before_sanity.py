@@ -98,8 +98,6 @@ if __name__ == '__main__':
 
     clustering = pd.read_csv(os.path.join(args.folder_cellstates_output, 'optimized_clusters.txt'), sep='\t',
                              header=None).values.astype(dtype=int).flatten()
-    cell_ids_cellstates = pd.read_csv(os.path.join(args.folder_cellstates_output, 'CellID.txt'), sep='\t',
-                                      header=None).values.flatten()
 
     if args.file_raw_umi_counts.split('.')[1] == 'mtx':
         M = mmread(os.path.join(args.file_raw_umi_counts, args.file_raw_umi_counts))
@@ -123,8 +121,13 @@ if __name__ == '__main__':
         gene_ids = list(tmp.index)
         umi_counts = tmp.values.astype(dtype='int')
 
-    logger.debug("First 10 cell ids, raw input: {}".format(cell_ids[:10]))
-    logger.debug("First 10 cell ids, cellstates input: {}".format(cell_ids_cellstates[:10]))
+    if os.path.exists(os.path.join(args.folder_cellstates_output, 'CellID.txt')):
+        cell_ids_cellstates = pd.read_csv(os.path.join(args.folder_cellstates_output, 'CellID.txt'), sep='\t',
+                                          header=None).values.flatten()
+        logger.debug("First 10 cell ids, raw input: {}".format(cell_ids[:10]))
+        logger.debug("First 10 cell ids, cellstates input: {}".format(cell_ids_cellstates[:10]))
+    else:
+        cell_ids_cellstates = cell_ids
 
     for ind, cell_ID in enumerate(cell_ids):
         if cell_ID != cell_ids_cellstates[ind]:
