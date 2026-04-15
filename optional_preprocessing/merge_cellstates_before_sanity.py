@@ -146,8 +146,9 @@ if __name__ == '__main__':
         mmwrite(os.path.join(results_folder, 'prom_cs_expr_matrix.mtx'), sparse_umis)
     shutil.copyfile(os.path.join(args.folder_cellstates_output, 'optimized_clusters.txt'),
                     os.path.join(results_folder, 'cs_clusters.txt'))
-    shutil.copyfile(os.path.join(args.folder_cellstates_output, 'CellID.txt'),
-                    os.path.join(results_folder, 'orig_CellID.txt'))
+    with open(os.path.join(results_folder, 'orig_CellID.txt'), 'w') as f:
+        for ID in cell_ids_cellstates:
+            f.write("%s\n" % ID)
 
     # Store which cell-id was stored to which cs_id
     cell_id_to_cs_id_df = pd.DataFrame.from_dict(cell_id_to_cs_id, orient='index')
