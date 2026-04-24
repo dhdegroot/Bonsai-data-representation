@@ -194,6 +194,8 @@ if __name__ == '__main__':
     )
     n_cellstates = summed_counts_clst.shape[1]
 
+    print("Starting to write output in {}".format(results_folder))
+
     if not AS_MTX:
         new_umi_counts_df = pd.DataFrame(summed_counts_clst, columns=cs_ids, index=gene_ids)
         new_umi_counts_df.to_csv(os.path.join(results_folder, 'Gene_table.txt'), index=True, sep='\t',
