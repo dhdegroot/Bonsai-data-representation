@@ -23,6 +23,7 @@ authors:
 url: "https://github.com/dhdegroot/Bonsai-data-representation"
 version: 1.0.0
 date-released: 2026-05-25
+doi: 10.5281/zenodo.20370956
 
 preferred-citation:
   type: article
