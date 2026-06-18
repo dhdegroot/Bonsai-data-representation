@@ -147,3 +147,4 @@ slurm_runs_pipeline/
 .idea/Private-bonsai.iml
 local_scripts/*
 *.prof
+/.vscode
