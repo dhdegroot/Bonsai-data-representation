@@ -949,16 +949,16 @@ def remove_tree_folders(tree_folder, removeDir=False, notRemove=None, base=None)
     if removeDir and empty:
         try:
             shutil.rmtree(tree_folder)
-        except FileNotFoundError or OSError:
-            mp_print("Process %d: Apparently, folder %s was already removed." % (
-                mpi_wrapper.get_process_rank(), tree_folder), ALL_RANKS=True)
+        except (FileNotFoundError, OSError) as e:
+            mp_print("Process %d: Apparently, folder %s was already removed. Error: %s" % (
+                mpi_wrapper.get_process_rank(), tree_folder, str(e)), ALL_RANKS=True)
 
 
 def remove_folder(folder_path):
     try:
         shutil.rmtree(folder_path)
-    except FileNotFoundError or OSError:
-        mp_print("Apparently, folder %s was already removed." % folder_path)
+    except (FileNotFoundError, OSError) as e:
+        mp_print("Apparently, folder %s was already removed. Error: %s" % (folder_path, str(e)))
 
 
 def empty_folder(folder_path):
@@ -986,9 +986,9 @@ def removePickledTrees(pickleFolder, removeDir=False, notRemove=None, base=None)
             for intFile in os.listdir(pickleFolder):
                 os.remove(os.path.join(pickleFolder, intFile))
             os.rmdir(pickleFolder)
-        except FileNotFoundError or OSError:
-            mp_print("Process %d: Apparently, folder %s was already removed." % (
-                mpi_wrapper.get_process_rank(), pickleFolder))
+        except (FileNotFoundError, OSError) as e:
+            mp_print("Process %d: Apparently, folder %s was already removed. Error: %s" % (
+                mpi_wrapper.get_process_rank(), pickleFolder, str(e)))
 
 
 def recursionWrap(fun, *args, **kwargs):
