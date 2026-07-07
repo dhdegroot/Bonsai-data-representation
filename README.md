@@ -114,7 +114,7 @@ python3 bonsai/create_config_file.py \
   --input_is_sanity_output True \
   --zscore_cutoff 1.0 \
   --UB_ellipsoid_size 1.0 \
-  --nnn_n_randommoves 1000 \
+  --nnn_n_randommoves 100 \
   --nnn_n_randomtrees 2 \
   --pickup_intermediate False \
   --use_knn 10
@@ -261,7 +261,7 @@ python3 bonsai/create_config_file.py \
   --results_folder examples/1_simple_example/results/simulated_binary_6_gens_samplingNoise/ \
   --input_is_sanity_output True \
   --zscore_cutoff 1.0 \
-  --nnn_n_randommoves 1000 \
+  --nnn_n_randommoves 100 \
   --nnn_n_randomtrees 2 \
   --use_knn 10
 ```
