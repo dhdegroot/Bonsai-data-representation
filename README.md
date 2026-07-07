@@ -28,7 +28,7 @@ git clone https://github.com/dhdegroot/Bonsai-data-representation.git
 
 2. Create a conda environment:
 ```
-conda create --name bonsai python=3.9 -y
+conda create --name bonsai python=3.14 -y
 conda activate bonsai
 ```
 
@@ -114,7 +114,7 @@ python3 bonsai/create_config_file.py \
   --input_is_sanity_output True \
   --zscore_cutoff 1.0 \
   --UB_ellipsoid_size 1.0 \
-  --nnn_n_randommoves 1000 \
+  --nnn_n_randommoves 100 \
   --nnn_n_randomtrees 2 \
   --pickup_intermediate False \
   --use_knn 10
@@ -182,7 +182,7 @@ First, make sure that you have the required packages installed. Since, we need a
 
 * Make a new conda environment:
 ```
-conda create --name bonsai_scout python=3.9 -y
+conda create --name bonsai_scout python=3.14 -y
 conda activate bonsai_scout
 ```
 * Install the required packages:
@@ -261,7 +261,7 @@ python3 bonsai/create_config_file.py \
   --results_folder examples/1_simple_example/results/simulated_binary_6_gens_samplingNoise/ \
   --input_is_sanity_output True \
   --zscore_cutoff 1.0 \
-  --nnn_n_randommoves 1000 \
+  --nnn_n_randommoves 100 \
   --nnn_n_randomtrees 2 \
   --use_knn 10
 ```

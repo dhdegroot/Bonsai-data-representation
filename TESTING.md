@@ -95,3 +95,29 @@ flowchart LR
     getApproxNNs --> getNNssklearn
     benchmark["bonsai_approxNN.py `__main__` benchmark"] --> getFracCorrectNNs
 ```
+
+## Testing *Bonsai-scout*
+
+The core suite above only covers the numerical Bonsai algorithm; it doesn't
+touch the *Bonsai-scout* Shiny app at all. `bonsai_scout/tests/` covers the
+app itself with real browser-driven end-to-end tests, using Shiny's own
+Playwright-based testing framework. It needs the `bonsai_scout` conda env
+(not `bonsai`), so it's kept out of root `pytest.ini`'s `testpaths = tests`
+and run as a separate, explicit invocation:
+
+```bash
+conda activate bonsai_scout
+pip install -r requirements-dev_bonsai_scout.txt   # adds pytest + pytest-playwright
+playwright install chromium                        # one-time headless-browser download
+pytest bonsai_scout/tests -v
+```
+
+Each test launches the real app as a subprocess against a tiny 64-cell
+example dataset (built fresh into a temp dir by the `example_results_folder`
+fixture in `bonsai_scout/tests/conftest.py`, mirroring the README's
+"Example 1"), drives it with a headless Chromium page, and asserts on the
+rendered DOM — e.g. `test_gene_expression_search.py` types into the Gene
+expression tab's filter box, confirms the table narrows, selects a row, then
+switches accordion tabs away and back to confirm the filtered/selected state
+survives (the specific bug that `filters=False` was previously working
+around).

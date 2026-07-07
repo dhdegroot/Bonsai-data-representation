@@ -23,12 +23,12 @@ custom_colors_rgb = [tuple(float(int(h.lstrip('#')[i:i + 2], 16)) / 255 for i in
 custom_colors_rgba = [tuple(list(rgb) + [1.0]) for rgb in custom_colors_rgb]
 blackish = '#%02x%02x%02x' % (35, 31, 32)
 blackish = (0.08578431372549018, 0.08578428015768168, 0.11935208866155156, 1.0)
-grey_cmap = cm.get_cmap('gray')
+grey_cmap = plt.get_cmap('gray')
 grey = grey_cmap(0.7)
-# celltype_colors = cm.get_cmap('tab10')
-other_colors = cm.get_cmap('tab20')
-# gradient_colors = cm.get_cmap('terrain')
-gradient_colors = cm.get_cmap('viridis')
+# celltype_colors = plt.get_cmap('tab10')
+other_colors = plt.get_cmap('tab20')
+# gradient_colors = plt.get_cmap('terrain')
+gradient_colors = plt.get_cmap('viridis')
 
 import logging
 FORMAT = '%(asctime)s %(funcName)s %(levelname)s %(message)s'
@@ -228,16 +228,16 @@ def get_celltype_colors(n_celltypes, colortype=None, gradientType='hsv'):
         #             "GMP-C": col_GMPC
         #             }
     elif (colortype is None) and (n_celltypes < 10):
-        celltype_colors = cm.get_cmap('tab10')
+        celltype_colors = plt.get_cmap('tab10')
     elif (colortype is None) and (n_celltypes < 20):
-        celltype_colors = cm.get_cmap('tab20')
+        celltype_colors = plt.get_cmap('tab20')
     elif colortype == 'offOn':
-        tab10 = cm.get_cmap('tab10')
+        tab10 = plt.get_cmap('tab10')
         two_colors = tab10([1, 2])
         two_colors[1, :] = grey_cmap(0.5)
         celltype_colors = ListedColormap(two_colors)
     else:
-        gradient = cm.get_cmap(gradientType)
+        gradient = plt.get_cmap(gradientType)
         celltype_colors = ListedColormap(gradient(np.linspace(0, 1, n_celltypes)))
     return celltype_colors
 

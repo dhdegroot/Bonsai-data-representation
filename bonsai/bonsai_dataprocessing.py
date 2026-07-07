@@ -1933,7 +1933,7 @@ def nnnReorderRandom(args, outputFolder, verbose=False, randomMoves=0,
                 scData = loadReconstructedTreeAndData(args, os.path.join(random_folder, 'random_tree_%d' % bestTree),
                                                       reprocess_data=False, all_genes=False, get_cell_info=False,
                                                       all_ranks=False, rel_to_results=False)
-            mp_print("Loaded optimal tree has loglikelihood: %r" % scData.metadata.loglik)
+            mp_print("Loaded optimal tree has loglikelihood: {}".format(scData.metadata.loglik))
             # mp_print("Loaded optimal tree has true loglikelihood: %r" % scData.tree.calcLogLComplete(mem_friendly=True,
             #                                                                                  loglikVarCorr=scData.metadata.loglikVarCorr))
             # mp_print("After loading optimal random tree, memory usage is ",

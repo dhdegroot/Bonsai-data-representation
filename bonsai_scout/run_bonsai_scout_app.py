@@ -52,5 +52,5 @@ if args.port == -1:
 else:
     port = args.port
 # port = 1234
-print("Your app will shortly be running at: http://0.0.0.0:{}. Use your browser (not Safari) to view it.".format(port))
+print("Your app will shortly be running at: http://localhost:{}. Use your browser (not Safari) to view it.".format(port))
 subprocess.run(['shiny', 'run', 'bonsai_scout/app.py', '--port={}'.format(port), '--host=0.0.0.0'])
