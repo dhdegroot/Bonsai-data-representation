@@ -915,7 +915,7 @@ def server(input, output, session: Session):
         feature_path.get()
         bv_objct.feature_display = get_feature_info_display(bv_objct.bonvis_fig.bonvis_data,
                                                    bv_objct.bonvis_fig.bonvis_settings.node_style['feature_path'])
-        return render.DataGrid(bv_objct.feature_display, selection_mode='row', summary=False, filters=False, width='100%')
+        return render.DataGrid(bv_objct.feature_display, selection_mode='row', summary=False, filters=True, width='100%')
 
     # @reactive.effect
     # @reactive.event(input.go_marker)
@@ -1028,7 +1028,7 @@ def server(input, output, session: Session):
         bv_objct.bonvis_fig.marker_genes_df = marker_genes_df
         bv_objct.click_counters['trigger_marker'] = trigger_marker_genes.get()
         return render.DataGrid(bv_objct.bonvis_fig.marker_genes_df.round(2),
-                            selection_mode="row", summary=False, filters=False,
+                            selection_mode="row", summary=False, filters=True,
                             width='100%')
 
     @render.plot(alt="Bonsai plot")
