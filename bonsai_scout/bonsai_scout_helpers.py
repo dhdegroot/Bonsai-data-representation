@@ -31,7 +31,7 @@ from downstream_analyses.calc_marker_genes_helpers import calc_marker_genes_sing
 from downstream_analyses.get_clusters_max_diameter import get_max_diam_clustering_from_nwk_str, \
     get_footfall_clustering_from_nwk_str_deprecated, get_cluster_assignments, get_min_pdists_clustering_from_nwk_str
 
-gray = cm.get_cmap('gray')(0.75)
+gray = plt.get_cmap('gray')(0.75)
 blackish = (0.08578431372549018, 0.08578428015768168, 0.11935208866155156, 1.0)
 
 import logging
@@ -133,7 +133,7 @@ class Celltype_info:
                 ind = 0
                 for cat in cats:
                     if cat == 'NaN':
-                        annot_to_color[cat] = cm.get_cmap('gray')(0.75)
+                        annot_to_color[cat] = plt.get_cmap('gray')(0.75)
                     else:
                         annot_to_color[cat] = celltype_colors(ind)
                         ind += 1
@@ -254,7 +254,7 @@ class Verttype_info:
                 ind = 0
                 for cat in cats:
                     if cat == 'NaN':
-                        annot_to_color[cat] = cm.get_cmap('gray')(0.75)
+                        annot_to_color[cat] = plt.get_cmap('gray')(0.75)
                     else:
                         annot_to_color[cat] = celltype_colors(ind)
                         ind += 1
@@ -345,7 +345,7 @@ class Annotation_info:
         self.label = label
         self.cbar_info = cbar_info
         if ('cmap' in self.cbar_info) and (type(self.cbar_info['cmap']) is str):
-            self.cbar_info['cmap'] = cm.get_cmap(self.cbar_info['cmap'])
+            self.cbar_info['cmap'] = plt.get_cmap(self.cbar_info['cmap'])
         self.annot_type = annot_type
         self.color_type = color_type
         self.info_object = info_object
@@ -649,7 +649,7 @@ class Bonvis_figure:
 
     def get_bg_collection(self):
         # Create background for hyperbolic geometry
-        gray_cm = cm.get_cmap('gray')
+        gray_cm = plt.get_cmap('gray')
 
         if self.bonvis_settings.transf_info.geometry == 'hyperbolic':
             # Get interval at which we are going to place lines
@@ -1054,7 +1054,7 @@ class Bonvis_figure:
         sorted_cats = annot_info.cats if hasattr(annot_info, 'cats') else cats
         for cat in sorted_cats:
             if cat == 'NaN':
-                annot_to_color[cat] = cm.get_cmap('gray')(0.75)
+                annot_to_color[cat] = plt.get_cmap('gray')(0.75)
             if cat in low_freq_cats:
                 annot_to_color[cat] = celltype_colors(0)
             if cat in kept_cats:
@@ -1127,16 +1127,16 @@ class Bonvis_figure:
             cell_to_colorvals_notnan = (cell_to_celltype_notnan - min_val) / (max_val - min_val)
             cell_to_color_notnan = cbar_info['cmap'](cell_to_colorvals_notnan)
             cell_to_color[~nan_entries, :] = cell_to_color_notnan
-            cell_to_color[nan_entries, :] = cm.get_cmap('gray')(0.95)
+            cell_to_color[nan_entries, :] = plt.get_cmap('gray')(0.95)
         else:
             logger.debug("Don't know what color to give, choosing gray.")
             cell_to_celltype = [np.nan] * self.bonvis_metadata.n_cells
-            cell_to_color = np.array([cm.get_cmap('gray')] * self.bonvis_metadata.n_cells)
+            cell_to_color = np.array([plt.get_cmap('gray')] * self.bonvis_metadata.n_cells)
 
         if ((node_style['verts_masked'] is not None) or (node_style['cells_masked'] is not None)) and node_style[
             'use_mask']:
             alpha = 0.25
-            masked_color = list(cm.get_cmap('gray')(0.95))
+            masked_color = list(plt.get_cmap('gray')(0.95))
             masked_color[-1] = alpha
             masked_color = tuple(masked_color)
             if annot_info.annot_type == 'cells':
@@ -2523,9 +2523,9 @@ def get_celltype_colors_new(n_celltypes=None, colortype=None, gradientType='YlOr
         celltype_colors = [col_CLP, col_CMP, col_GMP, col_HSC, col_LMPP, col_MEP, col_MPP, col_pDC]
         celltype_colors = colors.ListedColormap(celltype_colors)
     elif ((colortype is None) or (colortype == 'tab10')) and (n_celltypes <= 10):
-        celltype_colors = cm.get_cmap('tab10')
+        celltype_colors = plt.get_cmap('tab10')
     elif ((colortype is None) or (colortype == 'tab20')) and (n_celltypes <= 20):
-        celltype_colors = cm.get_cmap('tab20')
+        celltype_colors = plt.get_cmap('tab20')
     elif ((colortype is None) and (n_celltypes <= 40)):
         tab20b_colors = plt.cm.tab20b(np.linspace(0, 1, 20))
         tab20c_colors = plt.cm.tab20c(np.linspace(0, 1, 20))
@@ -2536,15 +2536,15 @@ def get_celltype_colors_new(n_celltypes=None, colortype=None, gradientType='YlOr
     elif (colortype is None):
         celltype_colors, cols = categorical_cmap(10, int(np.ceil(n_celltypes / 10)), cmap="tab10")
     elif colortype == 'offOn':
-        tab10 = cm.get_cmap('tab10')
+        tab10 = plt.get_cmap('tab10')
         two_colors = tab10([1, 2])
-        two_colors[1, :] = cm.get_cmap('gray')(0.75)
+        two_colors[1, :] = plt.get_cmap('gray')(0.75)
         celltype_colors = colors.ListedColormap(two_colors)
     elif colortype == 'gradient_colormap':
-        cmap = cm.get_cmap(gradientType)
+        cmap = plt.get_cmap(gradientType)
         return cmap
     else:
-        gradient = cm.get_cmap('hsv')
+        gradient = plt.get_cmap('hsv')
         celltype_colors = colors.ListedColormap(gradient(np.linspace(0, 1, n_celltypes)))
     return celltype_colors
 

@@ -28,7 +28,7 @@ git clone https://github.com/dhdegroot/Bonsai-data-representation.git
 
 2. Create a conda environment:
 ```
-conda create --name bonsai python=3.9 -y
+conda create --name bonsai python=3.14 -y
 conda activate bonsai
 ```
 
@@ -182,7 +182,7 @@ First, make sure that you have the required packages installed. Since, we need a
 
 * Make a new conda environment:
 ```
-conda create --name bonsai_scout python=3.9 -y
+conda create --name bonsai_scout python=3.14 -y
 conda activate bonsai_scout
 ```
 * Install the required packages:

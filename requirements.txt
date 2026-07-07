@@ -1,8 +1,8 @@
-# mpi4py==4.0.0
-matplotlib==3.9.2
-numpy==1.26.4
-scipy==1.13.1
-pandas==2.2.3
-scikit-learn==1.5.2
-ruamel.yaml==0.18.6
-psutil==7.1.3
+# mpi4py
+matplotlib==3.11.0
+numpy==2.4.6
+scipy==1.17.1
+pandas==3.0.3
+scikit-learn==1.9.0
+ruamel.yaml==0.19.1
+psutil==7.2.2

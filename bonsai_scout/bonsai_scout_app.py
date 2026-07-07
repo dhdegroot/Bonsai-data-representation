@@ -255,10 +255,7 @@ app_ui = ui.page_sidebar(
         # ui.input_action_button("store", "Store settings"),
         open='always',
     ),
-    # Theme code - start
-    shinyswatch.theme.minty,
     # ui.head_content(ui.include_css(css_file)),
-    # Theme code - end
     ui.row(
         ui.column(8,
                   ui.card(
@@ -464,6 +461,7 @@ app_ui = ui.page_sidebar(
                   style='height:100%;overflow:auto'
                   ),
         style='height: 100%'),
+    theme=shiny_theme,
     # title=ui.output_text("mytitle"),#"Bonsai visualization",
     fillable=True,)
 
