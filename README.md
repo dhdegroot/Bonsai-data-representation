@@ -436,3 +436,12 @@ In *Bonsai-scout*, we, next to interactive visualization, offer 1) tree-based cl
 * Tree-based clustering. One can use the function `get_min_pdists_clustering_from_nwk_str` in the file `get_clusters_max_diameter.py` to perform minimal-distance clustering based on a tree given by a Newick-string. These clusters are also provided in *Bonsai-scout* and can there be downloaded by clicking the correct button.
 * Calculating marker genes. See the Methods-section of the *Bonsai*-publication for an extensive description of the marker gene calculation. The marker genes can be calculated in *Bonsai-scout*, but for large datasets this calculation can take too long. In that case, one can download the necessary information on the selected groups in a `.json`-file. This `.json`-file can be used to run `calc_marker_genes.py`.
 * Averaging over groups. Given a group of objects and the posterior feature-values (including error-bars) that *Bonsai* has calculated, one can use `average_over_groups_wrapper.py` to calculate the group's mean feature value and the group variance. Note that this can deviate from the naive mean and variance, because this script takes into account the uncertainty on the inferred feature values.
+
+## Tests for the *Bonsai* core
+The numerical functions underlying the tree-reconstruction algorithm (e.g. branch-length optimisation, merge scoring) have reference tests in `tests/`.
+See [`TESTING.md`](TESTING.md) for what's covered and a call graph of how the core algorithm's functions fit together.
+You can run the tests with:
+```
+pip install -r requirements-dev.txt
+pytest
+```
