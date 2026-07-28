@@ -40,11 +40,14 @@ parser.add_argument('--keep_progenitor_cells', type=str2bool, default=False,
 parser.add_argument('--multiply_cell_counts', type=float, default=-1,
                     help='To create a dataset with more or less noise, we can multiply the cell counts by a number'
                          'smaller or larger than 1, respectively.')
+parser.add_argument('--seed', type=int, default=2462,
+                    help='Random seed for the simulation (controls tree topology, branch lengths, '
+                         'and count-sampling noise).')
 
 args = parser.parse_args()
 print(args)
 
-seed = 2462
+seed = args.seed
 np.random.seed(seed)
 
 # Set number of generations and diffusion times
