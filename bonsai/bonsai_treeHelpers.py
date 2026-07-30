@@ -3432,13 +3432,19 @@ class Tree:
         return - loglik, np.sum(- grad * t)
 
     # Used
-    def optTimes(self, verbose=False, singleProcess=False, mem_friendly=True, maxiter=1e6, tol=1e-6):
+    def optTimes(self, verbose=False, singleProcess=False, mem_friendly=True, maxiter=1e6, tol=1e-6,
+                return_diagnostics=False):
         """
 
         :param verbose:
         :param singleProcess: This boolean variable determines whether many processes work together to calculate such
         that mergeChildrenUB can again be parallelized, or whether different processes are doing different instances
         of this function.
+        :param return_diagnostics: if True, also return scipy.optimize.minimize's own iteration count
+        (optRes.nit) as a second return value, for comparing convergence against the C++ port's
+        nlopt::opt::get_numevals(). Default False keeps every existing caller's return value unchanged
+        (a bare dict), since this is the same joint time-optimisation call used throughout the codebase,
+        not just in bonsai_main.py.
         :return:
         """
         if mpi_wrapper.is_first_process() or singleProcess:
@@ -3450,16 +3456,22 @@ class Tree:
                               options={'disp': False, 'maxiter': maxiter}, jac=True, bounds=bounds)
             optTimes = np.exp(optRes.x)
             optTimes[optTimes < (1e-6 + 1e-6)] = 0.
+            num_iterations = optRes.nit
         else:
             optTimes = None
             nodeInds = None
+            num_iterations = None
         if not singleProcess:
             nodeInds = mpi_wrapper.bcast(nodeInds, root=0)
             optTimes = mpi_wrapper.bcast(optTimes, root=0)
+            if return_diagnostics:
+                num_iterations = mpi_wrapper.bcast(num_iterations, root=0)
 
         optTimes = dict(zip(nodeInds, optTimes))
         self.root.assignTs(optTimes)
         self.root.getLtqsComplete(mem_friendly=True)
+        if return_diagnostics:
+            return optTimes, num_iterations
         return optTimes
 
     # Used
