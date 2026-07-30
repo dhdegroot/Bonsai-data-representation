@@ -382,11 +382,13 @@ if args.step in ['core_calc', 'all']:
                                                       get_cell_info=False, all_ranks=False, rel_to_results=True)
 
             startOptTimes = time.time()
-            optTimes = scData.tree.optTimes(verbose=True, singleProcess=True, mem_friendly=True, maxiter=100)
+            optTimes, opt_times_nit = scData.tree.optTimes(verbose=True, singleProcess=True, mem_friendly=True,
+                                                           maxiter=100, return_diagnostics=True)
 
             if (scData is not None) and (scData.tree is not None):
                 scData.tree.root.clear_memory()
             mp_print("Optimization of diffusion times took " + str(time.time() - startOptTimes) + " seconds.")
+            mp_print("Optimization of diffusion times converged in " + str(opt_times_nit) + " iterations.")
             scData.metadata.loglik = scData.tree.calcLogLComplete(mem_friendly=True,
                                                                   loglikVarCorr=scData.metadata.loglikVarCorr)
             mp_print("Loglikelihood of inferred tree after optimising diffusion times: " + str(scData.metadata.loglik))
@@ -536,9 +538,11 @@ if args.step in ['core_calc', 'all']:
 
         startOptTimes = time.time()
         mp_print("Starting a final optimization of diffusion times.")
-        optTimes = scData.tree.optTimes(verbose=True, mem_friendly=True, maxiter=100, singleProcess=True)
+        optTimes, opt_times_nit = scData.tree.optTimes(verbose=True, mem_friendly=True, maxiter=100,
+                                                       singleProcess=True, return_diagnostics=True)
         new_opt_times = scData.tree.test_for_zero_times(verbose=True, mem_friendly=True, singleProcess=True)
         mp_print("Optimization of diffusion times took " + str(time.time() - startOptTimes) + " seconds.")
+        mp_print("Optimization of diffusion times converged in " + str(opt_times_nit) + " iterations.")
         scData.metadata.loglik = scData.tree.calcLogLComplete(mem_friendly=True,
                                                               loglikVarCorr=scData.metadata.loglikVarCorr)
         if (scData is not None) and (scData.tree is not None):
