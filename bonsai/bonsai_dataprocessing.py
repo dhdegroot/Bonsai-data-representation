@@ -355,6 +355,16 @@ class SCData:
         mpiRank = mpi_wrapper.get_process_rank()
         if cleanup_tree:
             self.tree.root.mergeZeroTimeChilds()
+            # Processes with non-zero rank sometimes reload the tree with topology only, so they don't have
+            # ltqs/ltqsVars on every leaf. getLtqsComplete needs that data on every leaf it visits,
+            # so only run it on the ranks that have it
+            if (mpiRank == 0) or all_ranks:
+                mp_print("storeTreeInFolder: rank %d computing full tree ltqs (mpiRank==0 or all_ranks=%r)" %
+                         (mpiRank, all_ranks), ALL_RANKS=True)
+                self.tree.root.getLtqsComplete(mem_friendly=bs_glob.mem_friendly)
+            else:
+                mp_print("storeTreeInFolder: rank %d skipping getLtqsComplete (topology-only tree)" % mpiRank,
+                         ALL_RANKS=True)
             self.cleanup_node_inds()
             # self.tree.root.renumberNodes(change_node_inds=False)
             self.tree.nNodes = bs_glob.nNodes
@@ -2570,6 +2580,20 @@ def load_data_for_tree(scData, tree_folder, vertind_to_node, get_all_data=True, 
                         node.ltqs = ltqs_cg[vert_ind, :]
                         node.setLtqsVarsOrW(ltqsVars=ltqsVars_cg[vert_ind, :])
                     node.isCell = node.nodeId in cell_id_set
+                n_bad = 0
+                for check_vert_ind, check_node in vertind_to_node.items():
+                    if check_node.getLtqsVars(mem_friendly=True) is None:
+                        n_bad += 1
+                        if n_bad <= 5:
+                            mp_print("load_data_for_tree: node has no ltqsVars right after loading -- "
+                                     "vert_ind=%r, nodeInd=%r, nodeId=%r, isLeaf=%r, isCell=%r, "
+                                     "raw_ltqsVars_row=%r" %
+                                     (check_vert_ind, check_node.nodeInd, check_node.nodeId, check_node.isLeaf,
+                                      check_node.isCell, ltqsVars_cg[check_vert_ind, :]),
+                                     WARNING=True, ALL_RANKS=True)
+                if n_bad:
+                    mp_print("load_data_for_tree: %d of %d nodes had no ltqsVars right after loading" %
+                             (n_bad, bs_glob.nNodes), WARNING=True, ALL_RANKS=True)
                 del ltqs_cg
                 del ltqsVars_cg
                 gc.collect()

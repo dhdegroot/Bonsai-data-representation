@@ -794,9 +794,9 @@ class TreeNode:
         for ind, child in enumerate(self.childNodes):
             if not child.isLeaf:
                 child.mergeZeroTimeChilds()
-                if child.tParent == 0:
-                    if child.isCell and (not self.isCell):
-                        self.nodeId = child.nodeId
+                # Cell nodes represent a real measurement, not an inferred ancestor position.
+                # We do not delete these nodes as it would discard that cell's data.
+                if (child.tParent == 0) and (not child.isCell):
                     childrenToBeAdded += child.childNodes
                     childIndsToBeDeleted.append(ind)
                     child.parentNode = None
@@ -2512,6 +2512,10 @@ class TreeNode:
                 #                                                   self.childNodes[
                 #                                                       nodeIndToChildInd[nodeInd2]].celltype))
 
+        if addAsChild and newNode.isLeaf:
+            mp_print("mergeNodes: demoting a LEAF to an ancestor -- nodeInd=%r, nodeId=%r, isCell=%r, "
+                     "tParent=%r" % (newNode.nodeInd, newNode.nodeId, newNode.isCell, newNode.tParent),
+                     WARNING=True, ALL_RANKS=True)
         newNode.isLeaf = False
         delInds = []
         del_node_inds = []
@@ -2534,6 +2538,11 @@ class TreeNode:
         for nodeInd in gchildInds:
             ind = nodeIndToChildInd[nodeInd]
             child = self.childNodes[ind]
+            if child.isCell and (child.getLtqsVars(mem_friendly=True) is None):
+                mp_print("mergeNodes: cell child about to be attached with no ltqsVars -- nodeInd=%r, "
+                         "nodeId=%r, isLeaf=%r, newAncestor=%r" %
+                         (child.nodeInd, child.nodeId, child.isLeaf, newNode.nodeInd),
+                         WARNING=True, ALL_RANKS=True)
             delInds.append(ind)
             del_node_inds.append(nodeInd)
             newNode.childNodes.append(child)
@@ -5253,7 +5262,16 @@ def findNodeLtqsGivenLeafs(childNodes=None, ltqs_gi=None, ltqsVars_gi=None, t_i=
         if return_wbar_gi:
             wbar_gi = np.zeros(bs_glob.nGenes, len(childNodes))
         for cInd, child in enumerate(childNodes):
-            wbar_g = 1 / (child.getLtqsVars(mem_friendly=True) + child.tParent)
+            child_ltqsVars = child.getLtqsVars(mem_friendly=True)
+            if (child_ltqsVars is None) or (child.tParent is None):
+                mp_print("findNodeLtqsGivenLeafs: bad child before divide -- "
+                         "nodeInd=%r, vert_ind=%r, nodeId=%r, isLeaf=%r, isCell=%r, "
+                         "ltqsVars=%r, tParent=%r, parentNode.nodeInd=%r" %
+                         (child.nodeInd, child.vert_ind, child.nodeId, child.isLeaf, child.isCell,
+                          child_ltqsVars, child.tParent,
+                          child.parentNode.nodeInd if child.parentNode else None),
+                         WARNING=True, ALL_RANKS=True)
+            wbar_g = 1 / (child_ltqsVars + child.tParent)
             if return_wbar_gi:
                 wbar_gi[:, cInd] = wbar_g
             W_g += wbar_g
