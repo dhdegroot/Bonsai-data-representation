@@ -355,10 +355,9 @@ class SCData:
         mpiRank = mpi_wrapper.get_process_rank()
         if cleanup_tree:
             self.tree.root.mergeZeroTimeChilds()
-            # Non-zero ranks are sometimes deliberately reloaded with topology only (see the
-            # all_ranks=False reloads in bonsai_main.py, "not the data"), so they don't have real
+            # Processes with non-zero rank sometimes reload the tree with topology only, so they don't have
             # ltqs/ltqsVars on every leaf. getLtqsComplete needs that data on every leaf it visits,
-            # so only run it on the ranks that actually have it -- same gating as the write below.
+            # so only run it on the ranks that have it
             if (mpiRank == 0) or all_ranks:
                 mp_print("storeTreeInFolder: rank %d computing full tree ltqs (mpiRank==0 or all_ranks=%r)" %
                          (mpiRank, all_ranks), ALL_RANKS=True)
