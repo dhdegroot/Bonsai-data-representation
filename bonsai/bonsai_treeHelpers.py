@@ -794,10 +794,8 @@ class TreeNode:
         for ind, child in enumerate(self.childNodes):
             if not child.isLeaf:
                 child.mergeZeroTimeChilds()
-                # Cell nodes represent a real measured cell, not just an inferred ancestor position.
-                # Collapsing one away would discard that cell's data from the computation, so only
-                # non-cell ancestors are eligible for merging (matches deleteParentsWithOneChild and
-                # mergeNodes, which both guard on isCell for the same reason).
+                # Cell nodes represent a real measurement, not an inferred ancestor position.
+                # We do not delete these nodes as it would discard that cell's data.
                 if (child.tParent == 0) and (not child.isCell):
                     childrenToBeAdded += child.childNodes
                     childIndsToBeDeleted.append(ind)
