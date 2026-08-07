@@ -17,11 +17,7 @@ or with an mtx-file:
 Sanity -n <number_of_threads> -f <path_to_gene_table.mtx> -d <path_to_output_folder> -e 1 -v_m MAP -mtx_genes <path_to_gene_ids.tsv> -mtx_cells <path_to_cell_ids.tsv>
 ```
 
-The `-v_m`-argument picks how *Sanity* estimates the gene-variances, and *Bonsai* accepts three of its four options:
-* `MAP` (*Sanity*'s own default) uses the maximum-a-posteriori gene-variance, and is what we recommend.
-* `MLE` uses the maximum-likelihood gene-variance. This reproduces what *Sanity*-versions older than 2.0 wrote when they were run with `-max_v`, so use this when you want results that are comparable with earlier *Bonsai*-runs.
-* `EAP` uses the expected-a-posteriori gene-variance.
-* `MARG` marginalises over the gene-variance. **This one cannot be used as *Bonsai*-input**, since its estimates are then no longer a likelihood that *Bonsai* can reconstruct. *Bonsai* recognises such output and stops with an explanatory message.
+The `-v_m`-argument picks how *Sanity* estimates the gene-variances, and *Bonsai* accepts three of its four options: `MAP`, `MLE`, and `EAP`. All three options fix a single prior-variance per gene (the maximum-a-posteriori, maximum-likelihood-estimate, and expected-a-posteriori) and return the corresponding posterior distributions of the gene expression estimates. This is essential, because Bonsai uses this gene-variance to divide out the prior before starting its inference (as the tree will replace Sanity's simple Gaussian prior). Instead, the `MARG`-option marginalises over the gene-variance. **This cannot be used as *Bonsai*-input**, since its estimates are then no longer a likelihood that *Bonsai* can reconstruct. *Bonsai* recognises such output and stops with an explanatory message.
 
 *Bonsai* also still reads output made by *Sanity*-versions older than 2.0. Those had to be run with `-e 1 -max_v true`, which wrote the files that *Bonsai* needs with a `_vmax`-suffix. *Bonsai* tells the two apart by the `sanity_command.txt`-file that *Sanity* writes into its output-folder from version 2.0 onwards, so no *Bonsai*-argument needs changing when you update *Sanity*.
 
