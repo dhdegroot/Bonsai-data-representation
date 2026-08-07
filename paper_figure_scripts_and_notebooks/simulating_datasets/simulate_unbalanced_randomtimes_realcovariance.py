@@ -289,6 +289,8 @@ Path(data_path).mkdir(parents=True, exist_ok=True)
 # Store gene-variances and gene-IDs
 scData.metadata.geneVariances = true_vars_g
 scData.metadata.geneIds = geneID
+scData.metadata.nGenes = n_genes_final
+bs_glob.nGenes = n_genes_final
 
 # Store ground truth tree with everything necessary to visualize it
 scData.tree.set_midpoint_root()
@@ -296,7 +298,7 @@ scData.storeTreeInFolder(os.path.join(data_path, "true_tree", "final_bonsai"))
 # Make fake yaml-file, necessary for visualizing dataset
 scicore_data_path = os.path.join('/scicore/home/nimwegen/degroo0000/sc_datasets/simulated_datasets_copy', datadir)
 subprocess.run(
-    ['python3', 'bonsai/create_config_file.py', '--new_yaml_path', os.path.join(data_path, "true_tree", 'used_configs.yaml'),
+    [sys.executable, 'bonsai/create_config_file.py', '--new_yaml_path', os.path.join(data_path, "true_tree", 'used_configs.yaml'),
      '--dataset', os.path.join('simulated_datasets', datadir), '--data_folder', scicore_data_path, '--results_folder',
      os.path.join(scicore_data_path, "true_tree"), '--input_is_sanity_output', 'True', '--zscore_cutoff', '-1',
      '--UB_ellipsoid_size', '1.0', '--use_knn', '10', '--filenames_data', 'delta_true.txt,d_delta.txt'])
