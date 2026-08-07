@@ -47,11 +47,6 @@ parser.add_argument('--sanity_binary_path', type=str, default=None,
                     help='Absolute path to compiled Sanity binary')
 parser.add_argument('--conda_env', type=str, default=None,
                     help='(OPTIONAL) Name of Sanity conda-environment')
-parser.add_argument('--sanity_v_method', type=str, default='MAP', choices=['MAP', 'MLE', 'EAP'],
-                    help='Method that Sanity should use to estimate the gene-variances, passed on as its '
-                         "'-v_m'-argument (default: MAP). Only used for Sanity 2.0 and newer; older Sanity-versions "
-                         "are run with '-max_v only_max_output' instead. Note that 'MARG' is not offered here, since "
-                         'Bonsai cannot use its output.')
 parser.add_argument('--verbose', type=str2bool, default=False,
                     help='--verbose False only shows essential print messages (default: True)')
 
@@ -187,7 +182,7 @@ if not SKIP_SANITY:
         logger.warning("Could not determine the version of the Sanity-binary at {}. Assuming it is Sanity 2.0 or "
                        "newer.".format(args.sanity_binary_path))
     if (sanity_version is None) or (sanity_version >= SANITY_MINIMUM_VERSION):
-        method_args = ['-v_m', args.sanity_v_method]
+        method_args = ['-v_m', 'MAP']
     else:
         method_args = ['-max_v', 'only_max_output']
     logger.info("Running Sanity with the arguments {}.".format(" ".join(method_args)))
