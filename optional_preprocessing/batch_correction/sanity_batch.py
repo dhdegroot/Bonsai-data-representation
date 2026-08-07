@@ -27,7 +27,7 @@ logger.setLevel(log_level)
 parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 # Add the parent directory to sys.path
 sys.path.append(parent_dir)
-from bonsai.bonsai_helpers import mp_print, str2bool
+from bonsai.bonsai_helpers import mp_print, str2bool, get_sanity_binary_version, SANITY_MINIMUM_VERSION
 
 parser = ArgumentParser(description='Splits a dataset into batches, and starts Sanity runs separately per batch.')
 
@@ -47,6 +47,11 @@ parser.add_argument('--sanity_binary_path', type=str, default=None,
                     help='Absolute path to compiled Sanity binary')
 parser.add_argument('--conda_env', type=str, default=None,
                     help='(OPTIONAL) Name of Sanity conda-environment')
+parser.add_argument('--sanity_v_method', type=str, default='MAP', choices=['MAP', 'MLE', 'EAP'],
+                    help='Method that Sanity should use to estimate the gene-variances, passed on as its '
+                         "'-v_m'-argument (default: MAP). Only used for Sanity 2.0 and newer; older Sanity-versions "
+                         "are run with '-max_v only_max_output' instead. Note that 'MARG' is not offered here, since "
+                         'Bonsai cannot use its output.')
 parser.add_argument('--verbose', type=str2bool, default=False,
                     help='--verbose False only shows essential print messages (default: True)')
 
@@ -175,6 +180,18 @@ if not SKIP_SANITY:
     # Use SLURM allocation if available; otherwise get physical cores
     total_cpus = int(os.environ.get("SLURM_CPUS_PER_TASK", psutil.cpu_count(logical=False)))
 
+    # Sanity 2.0 replaced the '-max_v'-argument by '-v_m', and rejects arguments it does not recognise, so we ask the
+    # binary for its version once and pick the arguments that go with it.
+    sanity_version = get_sanity_binary_version(args.sanity_binary_path)
+    if sanity_version is None:
+        logger.warning("Could not determine the version of the Sanity-binary at {}. Assuming it is Sanity 2.0 or "
+                       "newer.".format(args.sanity_binary_path))
+    if (sanity_version is None) or (sanity_version >= SANITY_MINIMUM_VERSION):
+        method_args = ['-v_m', args.sanity_v_method]
+    else:
+        method_args = ['-max_v', 'only_max_output']
+    logger.info("Running Sanity with the arguments {}.".format(" ".join(method_args)))
+
     for batch_id in batch_ids:
         batch_folder = os.path.join(input_folder, 'batch_corrected', batch_id)
         matrix_file = os.path.join(batch_folder, 'prom_expr_matrix.mtx')
@@ -190,8 +207,7 @@ if not SKIP_SANITY:
                           '-mtx_cells', cells_file,
                           '-d', sanity_output_folder,
                           '-n', str(total_cpus),
-                          '-e', '1',
-                          '-max_v', 'only_max_output']
+                          '-e', '1'] + method_args
 
         logger.info("Starting Sanity on batch {}.".format(batch_id))
         logger.debug(" ".join(cmd))
