@@ -35,6 +35,11 @@ verbose: true
 # Bonsai-publication.
 # If your input data is not Sanity-output, set this flag to False, but make sure to provide
 # Bonsai with the required means and variances of the likelihood (P(D | x)).
+# When this flag is True, filenames_data is ignored: Bonsai works out which files to read from the
+# Sanity-output-folder itself. Sanity 2.0 and newer should be run with '-e 1 -v_m MAP' (or '-v_m MLE'
+# or '-v_m EAP'); '-v_m MARG' cannot be used, since it marginalises over the gene-variance so that the
+# reported estimates are no longer a likelihood that Bonsai can reconstruct. Sanity-versions older than
+# 2.0 should be run with '-e 1 -max_v true'.
 input_is_sanity_output: true
 
 

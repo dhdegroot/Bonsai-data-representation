@@ -1169,6 +1169,167 @@ def write_ids(filepath, ids_list):
             f.write("%s\n" % ID)
 
 
+# From version 2.0 onwards, Sanity writes a 'sanity_command.txt'-file into its output-folder. Its header-lines record
+# the Sanity-version and the method that was used to estimate the gene-variances, which together tell us which
+# output-files Sanity has written.
+SANITY_COMMAND_FILENAME = 'sanity_command.txt'
+SANITY_MINIMUM_VERSION = (2, 0, 0)
+# Before version 2.0, Sanity had to be run with the '-max_v'-argument, which gave the estimates at the
+# maximum-likelihood gene-variance a '_vmax'-suffix. From version 2.0 onwards the method is chosen with the
+# '-v_m'-argument and the output-files always carry the plain names.
+SANITY_LEGACY_FILENAMES = {'means': 'delta_vmax.txt', 'stds': 'd_delta_vmax.txt',
+                           'gene_variances': 'variance_vmax.txt', 'gene_means': 'mu_vmax.txt'}
+SANITY_FILENAMES = {'means': 'delta.txt', 'stds': 'd_delta.txt',
+                    'gene_variances': 'variance.txt', 'gene_means': 'mu.txt'}
+# Bonsai needs Sanity's estimates at a single gene-variance, so that the reported posteriors can be turned back into a
+# likelihood by dividing out the prior. The 'MARG'-method instead marginalises over the gene-variance, which does not
+# give us such a likelihood.
+SANITY_ACCEPTED_METHODS = ('MLE', 'MAP', 'EAP')
+SANITY_REJECTED_METHODS = ('MARG',)
+
+
+def parse_version_string(version_string):
+    """
+    Turns a version-string like '2.0' or '2.0.0' into a tuple of three integers, so that versions can be compared with
+    each other. Missing components count as zero, so that '2' and '2.0' both give (2, 0, 0). Any trailing non-numeric
+    part, as in '2.1.0-beta', is ignored.
+    :param version_string: The version as reported by Sanity.
+    :return: Tuple of three integers, or None when no leading number could be found.
+    """
+    numbers = []
+    for component in version_string.strip().split('.'):
+        digits = ''
+        for character in component:
+            if not character.isdigit():
+                break
+            digits += character
+        if not digits:
+            break
+        numbers.append(int(digits))
+    if not numbers:
+        return None
+    return tuple((numbers + [0, 0, 0])[:3])
+
+
+def parse_sanity_command_file(command_path):
+    """
+    Reads the header-lines that Sanity (from version 2.0 onwards) writes at the top of its 'sanity_command.txt'-file.
+    Such a file looks like:
+        # Timestamp: 2026-08-07 10:42:37
+        # Sanity version: 2.0.0
+        # Method: MLE
+        Sanity -f count_table.tsv -e 1 -d output_folder -v_m MLE
+    :param command_path: Full path to the 'sanity_command.txt'-file.
+    :return: Tuple (version, method), where version is a tuple of three integers and method an upper-case string.
+    Either of the two is None when the corresponding header-line is absent or could not be interpreted.
+    """
+    version = None
+    method = None
+    with open(command_path, 'r') as command_file:
+        for line in command_file:
+            line = line.strip()
+            if not line.startswith('#'):
+                # All header-lines start with a '#'. The first line without one is the Sanity-command itself.
+                break
+            keyword, _, value = line.lstrip('#').partition(':')
+            keyword = keyword.strip().lower()
+            value = value.strip()
+            if keyword == 'sanity version':
+                version = parse_version_string(value)
+            elif keyword == 'method' and len(value):
+                method = value.upper()
+    return version, method
+
+
+def get_sanity_binary_version(binary_path):
+    """
+    Asks a Sanity binary for its version. Sanity older than 2.0 answers with just the number, as in '1.1', while
+    Sanity 2.0 and newer answer with 'Sanity version 2.0.0'. In both cases the version is the last word of the answer.
+    :param binary_path: Path to the compiled Sanity binary.
+    :return: Tuple of three integers, or None when Sanity could not be run or gave an answer we cannot interpret.
+    """
+    import subprocess
+    try:
+        answer = subprocess.run([binary_path, '-v'], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    words = answer.stdout.split()
+    if not len(words):
+        return None
+    return parse_version_string(words[-1])
+
+
+def resolve_sanity_filepaths(data_folder):
+    """
+    Works out which files in a Sanity output-folder Bonsai should read, and checks that they are all there.
+    When the folder holds no 'sanity_command.txt', we are dealing with Sanity older than version 2.0, and we expect the
+    '_vmax'-files that such a Sanity writes when it is run with '-max_v'. When the folder does hold a
+    'sanity_command.txt', we read the version and the method from it, and expect the plain filenames that Sanity writes
+    from version 2.0 onwards.
+    Reports the problem and exits when the Sanity-version is too old, when the method cannot be used by Bonsai, or when
+    output-files are missing.
+    :param data_folder: Folder with the output of a single Sanity-run.
+    :return: Dictionary with the keys 'means', 'stds', 'gene_variances' and 'gene_means', giving the full path to the
+    corresponding Sanity output-file.
+    """
+    command_path = os.path.join(data_folder, SANITY_COMMAND_FILENAME)
+    new_sanity = os.path.exists(command_path)
+    if new_sanity:
+        version, method = parse_sanity_command_file(command_path)
+        if version is None:
+            mp_print("Could not read the Sanity-version from {}.\n"
+                     "Expected a line of the form '# Sanity version: 2.0.0'.".format(command_path), ERROR=True)
+            exit()
+        if version < SANITY_MINIMUM_VERSION:
+            mp_print("The Sanity-output in {} was made with Sanity-version {}, but Bonsai needs at least Sanity-version"
+                     " {}.\nPlease update Sanity (https://github.com/jmbreda/Sanity) and rerun "
+                     "it.".format(data_folder, '.'.join(map(str, version)),
+                                  '.'.join(map(str, SANITY_MINIMUM_VERSION))), ERROR=True)
+            exit()
+        if method is None:
+            mp_print("Could not read the variance-estimation method from {}.\n"
+                     "Expected a line of the form '# Method: MAP'.".format(command_path), ERROR=True)
+            exit()
+        if method in SANITY_REJECTED_METHODS:
+            mp_print("The Sanity-output in {} was made with the variance-estimation method '{}'.\n"
+                     "Bonsai cannot use Sanity that was run with '-v_m MARG' as input, since that marginalises over "
+                     "the gene-variance, so that the reported estimates are not a likelihood that Bonsai can "
+                     "reconstruct.\nPlease rerun Sanity with its default method, '-v_m MAP'. Use '-v_m MLE' instead if "
+                     "you want to reproduce the output of Sanity-versions older than "
+                     "2.0.".format(data_folder, method), ERROR=True)
+            exit()
+        if method not in SANITY_ACCEPTED_METHODS:
+            mp_print("The Sanity-output in {} was made with the variance-estimation method '{}', which Bonsai does not "
+                     "know.\nBonsai can use Sanity-output made with any of these methods: {}.".format(
+                         data_folder, method, ', '.join(SANITY_ACCEPTED_METHODS)), ERROR=True)
+            exit()
+        filenames = SANITY_FILENAMES
+    else:
+        filenames = SANITY_LEGACY_FILENAMES
+
+    filepaths = {key: os.path.join(data_folder, filename) for key, filename in filenames.items()}
+    missing_paths = [filepath for filepath in filepaths.values() if not os.path.exists(filepath)]
+    if len(missing_paths):
+        for missing_path in missing_paths:
+            mp_print("File {} not found.".format(missing_path), WARNING=True)
+        if new_sanity:
+            mp_print("Could not find all Sanity-output that Bonsai needs in {}.\n"
+                     "Make sure to run Sanity with the extended-output flag '-e 1'.".format(data_folder), ERROR=True)
+        elif os.path.exists(os.path.join(data_folder, SANITY_FILENAMES['means'])):
+            mp_print("Only found {}, not {}.\n"
+                     "Make sure to run Sanity with the argument '-max_v only_max_output'. When using Sanity 2.0 or "
+                     "newer, run it with '-e 1 -v_m MAP' instead.".format(SANITY_FILENAMES['means'],
+                                                                          SANITY_LEGACY_FILENAMES['means']), ERROR=True)
+        else:
+            mp_print("Could not find (the right) Sanity-output.\n"
+                     "Are you sure the argument --input_is_sanity_output should be set to True?"
+                     "\nAre you sure you are running Sanity with the extended-output flag '-e 1', "
+                     "and the vmax-argument '-max_v true'? When using Sanity 2.0 or newer, run it with "
+                     "'-e 1 -v_m MAP' instead.", ERROR=True)
+        exit()
+    return filepaths
+
+
 def print_memory(location=None):
     import psutil
     import tracemalloc

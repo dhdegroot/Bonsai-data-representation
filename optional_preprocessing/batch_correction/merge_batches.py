@@ -22,7 +22,7 @@ logger.setLevel(log_level)
 parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 # Add the parent directory to sys.path
 sys.path.append(parent_dir)
-from bonsai.bonsai_helpers import mp_print, str2bool, startMPI, read_ids, write_ids
+from bonsai.bonsai_helpers import mp_print, str2bool, startMPI, read_ids, write_ids, resolve_sanity_filepaths
 
 parser = ArgumentParser(description='Takes Sanity-output that was run on seperate batches, then merges the batches.')
 
@@ -81,9 +81,9 @@ all_gene_ids = read_ids(os.path.join(sanity_folder, 'geneID.txt'))
 all_gene_ids_to_ind = {gene_id: ind for ind, gene_id in enumerate(all_gene_ids)}
 n_genes_all = len(all_gene_ids)
 
-# Read in mean-per-gene
+# Read in mean-per-gene. Which filename Sanity used depends on its version, so we let Bonsai work that out.
 gene_means = []
-with open(os.path.join(sanity_folder, 'mu_vmax.txt'), 'r') as file:
+with open(resolve_sanity_filepaths(sanity_folder)['gene_means'], 'r') as file:
     reader = csv.reader(file, delimiter="\t")
     for row in reader:
         gene_means.append(float(row[0]))
@@ -99,9 +99,10 @@ for batch_id in batch_ids:
 
     # Read in the Sanity-output
     mp_print("Getting Sanity-output for {}".format(batch_id), DEBUG=True)
+    # Since sanityOutput is True, read_and_filter works out the filenames itself and ignores meansfile and stdsfile.
     ltqs, ltqs_vars, gene_vars, n_cells, n_genes, genes_to_keep, \
-    ltq_stds_found, n_genes_orig = read_and_filter(sanity_folder, meansfile='delta_vmax.txt',
-                                                   stdsfile='d_delta_vmax.txt', sanityOutput=True,
+    ltq_stds_found, n_genes_orig = read_and_filter(sanity_folder, meansfile=None,
+                                                   stdsfile=None, sanityOutput=True,
                                                    zscoreCutoff=-1, mpiInfo=mpi_info, tmp_folder=tmp_folder,
                                                    verbose=args.verbose, all_genes=True)
 

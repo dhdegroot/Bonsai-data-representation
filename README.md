@@ -6,16 +6,24 @@ The *Bonsai* tree-reconstruction was originally designed for the analysis of sin
 
 ### *Bonsai* for scRNA-seq data using *Sanity*
 When using *Bonsai* for scRNAseq-data, we highly recommend using *Sanity* for processing of the raw counts [Sanity's GitHub-page](https://github.com/jmbreda/Sanity), or to upload your data to our [single-cell pipeline](https://bonsai.unibas.ch). If running *Bonsai* after *Sanity*, *Bonsai* just requires the files in the output-directory created by *Sanity*, and can be run with the argument `--input_is_sanity_output True`. 
-**IMPORTANT: Make sure to run *Sanity* with the flags `-e 1 -max_v true`**. This makes sure that we get *Sanity*'s extended output, and that it contains the inferred gene expression values corresponding to the maximum posterior guess of the gene-variances. See the SI of the *Bonsai*-publication for an extensive discussion of why this is the preferred mode of running *Sanity* when getting *Bonsai* input.
+**IMPORTANT: Make sure to run *Sanity* with the flags `-e 1 -v_m MAP`**. The `-e 1` makes sure that we get *Sanity*'s extended output, and the `-v_m`-argument makes sure that the inferred gene expression values correspond to a single guess of the gene-variance, rather than to an average over the gene-variances. See the SI of the *Bonsai*-publication for an extensive discussion of why this is the preferred mode of running *Sanity* when getting *Bonsai* input.
 
 Example Sanity-command:
 ```
-Sanity -n <number_of_threads> -f <path_to_gene_table.tsv> -d <path_to_output_folder> -e true --max_v true
+Sanity -n <number_of_threads> -f <path_to_gene_table.tsv> -d <path_to_output_folder> -e 1 -v_m MAP
 ```
 or with an mtx-file:
 ```
-Sanity -n <number_of_threads> -f <path_to_gene_table.mtx> -d <path_to_output_folder> -e true --max_v true -mtx_genes <path_to_gene_ids.tsv> -mtx_cells <path_to_cell_ids.tsv>
+Sanity -n <number_of_threads> -f <path_to_gene_table.mtx> -d <path_to_output_folder> -e 1 -v_m MAP -mtx_genes <path_to_gene_ids.tsv> -mtx_cells <path_to_cell_ids.tsv>
 ```
+
+The `-v_m`-argument picks how *Sanity* estimates the gene-variances, and *Bonsai* accepts three of its four options:
+* `MAP` (*Sanity*'s own default) uses the maximum-a-posteriori gene-variance, and is what we recommend.
+* `MLE` uses the maximum-likelihood gene-variance. This reproduces what *Sanity*-versions older than 2.0 wrote when they were run with `-max_v`, so use this when you want results that are comparable with earlier *Bonsai*-runs.
+* `EAP` uses the expected-a-posteriori gene-variance.
+* `MARG` marginalises over the gene-variance. **This one cannot be used as *Bonsai*-input**, since its estimates are then no longer a likelihood that *Bonsai* can reconstruct. *Bonsai* recognises such output and stops with an explanatory message.
+
+*Bonsai* also still reads output made by *Sanity*-versions older than 2.0. Those had to be run with `-e 1 -max_v true`, which wrote the files that *Bonsai* needs with a `_vmax`-suffix. *Bonsai* tells the two apart by the `sanity_command.txt`-file that *Sanity* writes into its output-folder from version 2.0 onwards, so no *Bonsai*-argument needs changing when you update *Sanity*.
 
 ### *Bonsai* on general datatypes
 If running *Bonsai* based on other data, read the Section on [Running *Bonsai* on other data-types](https://github.com/dhdegroot/Bonsai-data-representation#running-bonsai-on-other-data-types).
@@ -172,7 +180,7 @@ To use *Bonsai* on a general dataset that contains $C$ objects in an $G$-dimensi
 ### The Bonsai run-configurations for general data types
 After the data have been properly normalized, running *Bonsai* happens similarly to what was described before for *Sanity*-output. The major differences are:
 * The argument `--input_is_sanity_output` should now be set to `False`.
-* The argument `--filenames_data` should now be used to point *Bonsai* to the files with features and error-bars, while for *Sanity*-output we know that this is given by `delta_vmax.txt,d_delta_vmax.txt`. So, for example, one could give `--filenames_data features.txt,standard_deviations.txt`.
+* The argument `--filenames_data` should now be used to point *Bonsai* to the files with features and error-bars, while for *Sanity*-output *Bonsai* works out these filenames itself (`delta.txt,d_delta.txt` for *Sanity* 2.0 and newer, `delta_vmax.txt,d_delta_vmax.txt` for older versions). So, for example, one could give `--filenames_data features.txt,standard_deviations.txt`.
 
 ## *Bonsai-scout*: Visualizing the *Bonsai* results
 The reconstructed tree can be visualized in the Bonsai-scout-app that was developed for this. 
