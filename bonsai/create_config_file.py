@@ -160,7 +160,7 @@ for dep_arg in deprecated_args:
 template_yaml_path = os.path.join('bonsai', 'config_template_do_not_change', 'config_template.yaml')
 if not os.path.exists(template_yaml_path):
     print("Can't find template for YAML-file, should be at: {}".format(template_yaml_path))
-    exit()
+    exit(1)
 
 yaml = YAML()
 with open(template_yaml_path, 'r') as file_obj:

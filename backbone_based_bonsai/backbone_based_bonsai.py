@@ -55,7 +55,7 @@ parser.add_argument('--n_initial_cells', type=int, default=10000,
 
 parser.add_argument('--growth_before_cleanup', type=float, default=.5,
                     help="When adding cells, this factor (larger than 0) determines after what growth factor (so .1 "
-                         "means 10% growth) we re-optimize the tree before adding another set of cells.")
+                         "means 10%% growth) we re-optimize the tree before adding another set of cells.")
 
 parser.add_argument('--growth_factor_guide', type=float, default=10,
                     help="Starting from the guide tree, we add cells until the tree is growth_factor_guide as large,"

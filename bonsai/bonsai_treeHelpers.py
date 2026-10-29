@@ -4098,7 +4098,7 @@ class Tree:
         spr_target_version = 0
 
         # Determine how often to clean the stored AIRoot-values, to free some memory
-        n_free_mem = int(bs_glob.nNodes / 10)
+        n_free_mem = max(1, int(bs_glob.nNodes / 10))
 
         self.root.reset_version_numbers('_AIRoot_version')
         self.root.reset_version_numbers('_spr_target_version')
@@ -4915,7 +4915,9 @@ def getOptTime2LeafTree(ltqs1_g, ltqsVars1_g, ltqs2_g, ltqsVars2_g, tol=1e-7):
         if lb_bracket > 1e6:
             return None, False
         if value_ub > 1e9:
-            exit()
+            mp_print("Could not find a bracket for the optimal time between two leaves, the derivative at the upper "
+                     "bound is {} (upper bound={}).".format(value_ub, ub_bracket), ALL_RANKS=True, ERROR=True)
+            exit(1)
     opt_dist, opt_sol = brentq(der2LeafTree, lb_bracket, ub_bracket,
                                (summedLtqsVars_g, sqDists_g),
                                rtol=tol, full_output=True)

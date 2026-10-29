@@ -152,8 +152,8 @@ if __name__ == '__main__':
     clustering = pd.read_csv(os.path.join(args.folder_cellstates_output, 'optimized_clusters.txt'), sep='\t',
                              header=None).values.astype(dtype=int).flatten()
 
-    if args.file_raw_umi_counts.split('.')[1] == 'mtx':
-        M = mmread(os.path.join(args.file_raw_umi_counts, args.file_raw_umi_counts))
+    if args.file_raw_umi_counts.endswith('.mtx'):
+        M = mmread(args.file_raw_umi_counts)
         unfiltered_umi_counts = M.toarray().astype(dtype=int)
         # Read in promoter names
         gene_ids = []

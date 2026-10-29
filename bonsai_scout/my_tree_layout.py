@@ -225,6 +225,8 @@ class Layout_Tree:
         new_angles = np.zeros(self.nNodes)
         new_angles[self.root.vert_ind] = 360
         reuse_calc = False
+        # Last tree for which each node had daylight, this is only stored once a step succeeded
+        old_tree = None
         while daylight_left and (step_counter < max_steps) and (max_dev > 10) and (
                 stepsize_changed < max_stepsize_changes) and (stepsize > 1e-3):
             max_dev = 0
@@ -261,6 +263,9 @@ class Layout_Tree:
                           "Maximum deviation from equal-daylight across nodes is {:.2f}".format(step_counter, max_dev))
             # If min daylight < 0, go to last stored tree
             if not daylight_left:
+                if old_tree is None:
+                    # The starting layout already has a node without daylight, so we keep the starting layout
+                    return self
                 reuse_calc = True
                 self = old_tree
                 daylight_left = True
@@ -906,8 +911,8 @@ def copy_from_scdata_tree(ly_tree_node, scdata_tree_node):
 
 
 # TODO: Should go to tree layout file
-def my_tree_layout(scData, calc=False, filepath='layout.csv', daylight_subset=None, eq_daylight=True, verbose=False,
-                   return_all=False, eq_dl_max_stepsize_changes=20, eq_dl_max_steps=100):
+def my_tree_layout(scData, calc=True, filepath='layout.csv', daylight_subset=None, eq_daylight=True, verbose=False,
+                   return_all=True, eq_dl_max_stepsize_changes=20, eq_dl_max_steps=100):
     """
     This function assumes that a tree-object is already stored in self.
     :param calc: Boolean indicating whether new layout is calculated.

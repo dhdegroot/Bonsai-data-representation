@@ -415,13 +415,10 @@ def calc_marker_genes_error_bars_approx2(indices1, indices2, means, vars, gene_i
 def store_marker_genes(filepath, marker_genes_dict):
     import pandas as pd
     single_dfs = []
-    n_markers = None
     for edge_id, marker_genes in marker_genes_dict.items():
         single_df = pd.DataFrame.from_dict(marker_genes, orient='index', columns=['marker_scores'])
         single_df.reset_index(inplace=True)
-        if n_markers is None:
-            n_markers = single_df.shape[0]
-        single_df['edge_id'] = [edge_id] * n_markers
+        single_df['edge_id'] = [edge_id] * single_df.shape[0]
         single_dfs.append(single_df)
     marker_genes_df = pd.concat(single_dfs, ignore_index=True)
     marker_genes_df.rename({'edge_id': 'edge_id', 'marker_scores': 'marker_scores', 'index': 'marker_genes'}, axis=1,

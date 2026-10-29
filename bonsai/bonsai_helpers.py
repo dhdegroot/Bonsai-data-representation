@@ -70,7 +70,7 @@ class Run_Configs:
                          'skip_nnn_reordering': False,
                          'skip_reorder_edges': False,
                          'pickup_intermediate': False,
-                         'tmp_folder': None,
+                         'tmp_folder': '',
                          'spr_strategy': 'large_tree'}
 
         if create_empty_configs:
@@ -89,7 +89,7 @@ class Run_Configs:
                   "'bonsai/config_template_do_not_change/config_template.yaml' "
                   "and insert the correct configuration there.\n"
                   "Then add the path to this YAML-file in the '--config_filepath' parameters")
-            exit()
+            exit(1)
 
         for label in pars_defaults:
             if (label in self.config_yaml) and (self.config_yaml[label] is not None):
@@ -1279,17 +1279,17 @@ def resolve_sanity_filepaths(data_folder):
         if version is None:
             mp_print("Could not read the Sanity-version from {}.\n"
                      "Expected a line of the form '# Sanity version: 2.0.0'.".format(command_path), ERROR=True)
-            exit()
+            exit(1)
         if version < SANITY_MINIMUM_VERSION:
             mp_print("The Sanity-output in {} was made with Sanity-version {}, but Bonsai needs at least Sanity-version"
                      " {}.\nPlease update Sanity (https://github.com/jmbreda/Sanity) and rerun "
                      "it.".format(data_folder, '.'.join(map(str, version)),
                                   '.'.join(map(str, SANITY_MINIMUM_VERSION))), ERROR=True)
-            exit()
+            exit(1)
         if method is None:
             mp_print("Could not read the variance-estimation method from {}.\n"
                      "Expected a line of the form '# Method: MAP'.".format(command_path), ERROR=True)
-            exit()
+            exit(1)
         if method in SANITY_REJECTED_METHODS:
             mp_print("The Sanity-output in {} was made with the variance-estimation method '{}'.\n"
                      "Bonsai cannot use Sanity that was run with '-v_m MARG' as input, since that marginalises over "
@@ -1297,12 +1297,12 @@ def resolve_sanity_filepaths(data_folder):
                      "reconstruct.\nPlease rerun Sanity with its default method, '-v_m MAP'. Use '-v_m MLE' instead if "
                      "you want to reproduce the output of Sanity-versions older than "
                      "2.0.".format(data_folder, method), ERROR=True)
-            exit()
+            exit(1)
         if method not in SANITY_ACCEPTED_METHODS:
             mp_print("The Sanity-output in {} was made with the variance-estimation method '{}', which Bonsai does not "
                      "know.\nBonsai can use Sanity-output made with any of these methods: {}.".format(
                          data_folder, method, ', '.join(SANITY_ACCEPTED_METHODS)), ERROR=True)
-            exit()
+            exit(1)
         filenames = SANITY_FILENAMES
     else:
         filenames = SANITY_LEGACY_FILENAMES
@@ -1326,7 +1326,7 @@ def resolve_sanity_filepaths(data_folder):
                      "\nAre you sure you are running Sanity with the extended-output flag '-e 1', "
                      "and the vmax-argument '-max_v true'? When using Sanity 2.0 or newer, run it with "
                      "'-e 1 -v_m MAP' instead.", ERROR=True)
-        exit()
+        exit(1)
     return filepaths
 
 

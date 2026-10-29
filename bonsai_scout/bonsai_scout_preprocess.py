@@ -101,7 +101,7 @@ args = parser.parse_args()
 # Find correct YAML-file
 config_filepath = None
 if (args.config_filepath is not None) and len(args.config_filepath):
-    config_filepath = args.config_filepath
+    config_filepath = os.path.abspath(args.config_filepath)
 else:
     for file in os.listdir(args.results_folder):
         if re.search(".*config.*.yaml$", file) is not None:

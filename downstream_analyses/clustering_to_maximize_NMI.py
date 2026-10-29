@@ -233,12 +233,12 @@ def do_annotbased_and_mindist_clustering(nwk_str, annotation_dict, cell_ids, res
     cl_df = pd.concat(all_cl_dfs, axis=1)
 
     """Store the final results"""
+    norm_mut_infos_df = pd.DataFrame(
+        data={'clustering_method': dataset_ids, 'max NMI': NMIs, 'times': timings})
     if results_folder is not None:
         cl_df.to_csv(os.path.join(results_folder, 'clustering_results.tsv'), sep='\t', index=True, header=True)
         # test_nmis = calculate_NMI_for_clustering_df(cl_df, annotation_dict)
 
-        norm_mut_infos_df = pd.DataFrame(
-            data={'clustering_method': dataset_ids, 'max NMI': NMIs, 'times': timings})
         norm_mut_infos_df.to_csv(os.path.join(results_folder, 'normalized_mutual_information_scores.tsv'), sep='\t',
                                  index=False, header=True)
 
