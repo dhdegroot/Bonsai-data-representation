@@ -3,6 +3,8 @@ comm = None
 from collections import namedtuple
 import numpy as np
 
+MpiInfo = namedtuple("MpiInfo", ['rank', 'size'])
+
 
 def mpi_init():
     if sys.platform.startswith('win32'):
@@ -24,7 +26,6 @@ def mpi_init():
 
 
 def get_mpi_info(singleProcess=False):
-    MpiInfo = namedtuple("MpiInfo", ['rank', 'size'])
     if not singleProcess:
         return MpiInfo(get_process_rank(), get_process_size())
     else:
@@ -49,6 +50,10 @@ def world_allgather(data):
 
 def gather(data, root=0):
     return comm.gather(data, root) if comm is not None else [data]
+
+
+def scatter(data, root=0):
+    return comm.scatter(data, root) if comm is not None else data[0]
 
 
 def Gather(data, root=0):

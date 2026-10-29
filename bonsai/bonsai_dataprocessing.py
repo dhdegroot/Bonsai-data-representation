@@ -4,7 +4,7 @@ from scipy.optimize import fminbound
 from scipy.spatial import distance
 import pandas as pd
 import csv
-from bonsai.bonsai_treeHelpers import Tree, TreeNode, optimiseTStar
+from bonsai.bonsai_treeHelpers import Tree, TreeNode, optimiseTStar, optimiseTStarWorker
 import bonsai.bonsai_globals as bs_glob
 import copy
 import gc
@@ -195,6 +195,8 @@ class SCData:
                                                        getOrigData=getOrigData or (not createStarTree),
                                                        zscoreCutoff=zscoreCutoff, mpiInfo=mpiInfo, all_genes=all_genes)
         if mpiInfo.rank != 0:
+            if createStarTree and (mpiInfo.size > 1):
+                optimiseTStarWorker(mpiInfo)
             return
         # if returnUncorrected:
         #     self.unscaled = copy.deepcopy(originalData)
@@ -253,7 +255,8 @@ class SCData:
         if createStarTree:
             self.tree = Tree()
             self.tree.initialize_star_tree(originalData.ltqs, originalData.ltqsVars, self.metadata,
-                                           opt_times=optTimes, verbose=verbose)
+                                           opt_times=optTimes, verbose=verbose,
+                                           mpiInfo=mpiInfo if (mpiInfo.size > 1) else None)
 
     """----------TREE MANIPULATIONS-------------------------------"""
 
@@ -1763,6 +1766,60 @@ def extensive_spr_postprocessing(args, scdata, verbose=False):
     #     return avgDists
 
 
+def isNNNCandidate(node):
+    return (not node.isLeaf) and (not node.isRoot)
+
+
+def indexNNNCandidates(root):
+    """
+    Stores on every node of the tree the number of candidates for a random interchange (nodes that are neither leaf
+    nor root) in its subtree, itself included.
+    :return: Dictionary from nodeInd to node, for every node in the tree.
+    """
+    nodeIndToNode = {}
+    nodes = [root]
+    for node in nodes:
+        nodeIndToNode[node.nodeInd] = node
+        nodes.extend(node.childNodes)
+    for node in reversed(nodes):
+        node.nnnCandidates = isNNNCandidate(node) + sum(child.nnnCandidates for child in node.childNodes)
+    return nodeIndToNode
+
+
+def getNNNCandidate(root, candidateInd):
+    """The candidate at position candidateInd in the pre-order of the tree's candidates, found by skipping whole
+    subtrees by their counts."""
+    node = root
+    while True:
+        for child in node.childNodes:
+            if candidateInd < child.nnnCandidates:
+                break
+            candidateInd -= child.nnnCandidates
+        else:
+            raise ValueError("The stored numbers of candidates do not match the tree.")
+        if isNNNCandidate(child):
+            if candidateInd == 0:
+                return child
+            candidateInd -= 1
+        node = child
+
+
+def updateNNNCandidates(mostUSNode, resetNodeInds):
+    """After processOptReconfig, re-counts the candidates of mostUSNode and of the nodes below it whose children were
+    reset, and passes the change in count on to mostUSNode's ancestors."""
+    oldCount = mostUSNode.nnnCandidates
+    nodes = [mostUSNode]
+    for node in nodes:
+        nodes.extend(child for child in node.childNodes if child.nodeInd in resetNodeInds)
+    for node in reversed(nodes):
+        node.nnnCandidates = isNNNCandidate(node) + sum(child.nnnCandidates for child in node.childNodes)
+    countChange = mostUSNode.nnnCandidates - oldCount
+    ancestor = mostUSNode.parentNode
+    while ancestor is not None:
+        ancestor.nnnCandidates += countChange
+        ancestor = ancestor.parentNode
+
+
 # Used
 def nnnReorderRandom(args, outputFolder, verbose=False, randomMoves=0,
                      veryVerbose=False, randomTries=None, resultsFolder=None):
@@ -1853,23 +1910,19 @@ def nnnReorderRandom(args, outputFolder, verbose=False, randomMoves=0,
         # scData.tree.root.storeParent()
         # mp_print(scData.metadata.loglik, scData.tree.root.ltqs[:5], ALL_RANKS=True)
         currLoglik = scData.metadata.loglik
+        # The dict of nodes and the number of candidates below every node are kept up to date from move to move
+        nodeIndToNode = indexNNNCandidates(scData.tree.root)
+        # Whether the tree's last change was made by processOptReconfig, which may then tidy up only what it changed
+        reconfigured = False
         # Then do random moves on this copy of the tree
         while moveCounter < randomMoves:
             # if moveCounter % 100 == 0:
             #     mp_print("After %d random moves, memory usage is " % moveCounter,
             #              psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2, " MB.", ALL_RANKS=True)
-            # TODO: Optimize the following couple of lines
-            # Create a list of nodes that are not the root and not leafs
-            nodesList = recursionWrap(scData.tree.root.getNodeList, [], returnLeafs=True,
-                                      returnRoot=True)  # TODO: Fast to maintain?
-            nodeIndToNode = {node.nodeInd: node for node in nodesList}
-            candidatesList = [node for node in nodesList if (not node.isLeaf) and (not node.isRoot)]  # TODO: Same
-            nCandidates = len(candidatesList)
-
-            randInd = np.random.randint(nCandidates)
-            # Make sure this node knows what its ltqs and ltqsVars would be if it would be the root
-            # candidatesList[randInd].getAIRootUpstream()
-            nnnLoglik, optEdgeList, mostUSInfo = scData.tree.getOptEdgeList(candidatesList[randInd], args,
+            # Pick a random node that is not the root and not a leaf, as the candidates' pre-order position randInd
+            randInd = np.random.randint(scData.tree.root.nnnCandidates)
+            candidate = getNNNCandidate(scData.tree.root, randInd)
+            nnnLoglik, optEdgeList, mostUSInfo = scData.tree.getOptEdgeList(candidate, args,
                                                                             finalOptTimes=True,
                                                                             returnEdgelist=True, random=True,
                                                                             trackCloseness=False, singleProcess=True,
@@ -1877,15 +1930,20 @@ def nnnReorderRandom(args, outputFolder, verbose=False, randomMoves=0,
 
             if optEdgeList is None:
                 if verbose:
-                    cand = candidatesList[randInd]
-                    message = "node %d" % cand.nodeInd if cand.parentNode is None \
-                        else "nodes %d and %d" % (cand.nodeInd, cand.parentNode.nodeInd)
+                    message = "node %d" % candidate.nodeInd if candidate.parentNode is None \
+                        else "nodes %d and %d" % (candidate.nodeInd, candidate.parentNode.nodeInd)
                     mp_print("Random reconfiguration around %s is skipped because of many connected nodes." % message,
                              ALL_RANKS=True)
                 continue
             # Process optimal reordering in the original tree
-            scData.tree.processOptReconfig(optEdgeList, nodeIndToNode, nodesList, candidatesList, mostUSInfo,
-                                           trackCloseness=False)
+            scData.tree.processOptReconfig(optEdgeList, nodeIndToNode, [], [], mostUSInfo, trackCloseness=False,
+                                           subtree_only=reconfigured)
+            if reconfigured:
+                updateNNNCandidates(nodeIndToNode[mostUSInfo['mostUSNodeInd']],
+                                    {edge[1] for edge in optEdgeList if not edge[3]})
+            else:
+                nodeIndToNode = indexNNNCandidates(scData.tree.root)
+            reconfigured = True
             currLoglik += nnnLoglik
             if veryVerbose:
                 mp_print("Move %d: Random reconfiguration of the nodes around node %d "
@@ -1905,6 +1963,8 @@ def nnnReorderRandom(args, outputFolder, verbose=False, randomMoves=0,
         scData.storeTreeInFolder(os.path.join(random_folder, 'random_tree_%d' % task), with_coords=False,
                                  verbose=verbose, all_ranks=True)
         scData = None
+        nodeIndToNode = None
+        candidate = None
         gc.collect()
         # mp_print("After storing random tree, memory usage is ",
         #          psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2, " MB.", ALL_RANKS=True)
@@ -1986,6 +2046,9 @@ def nnnReorder(args, tmp_folder, stored_tree_ind, maxMoves=100, closenessBound=0
     # scData.tree.root.storeParent()
     stored_tree_ind += 1
     goodMovesLeft = True
+    # Whether the tree's last change was made by processOptReconfig, which may then tidy up only what it changed
+    reconfigured = False
+    inBlocks = bs_glob.mem_friendly
     while goodMovesLeft and (moveCounter < maxMoves):
         # TODO: Optimize this as above
         # Create a list of nodes that are not the root and not leafs
@@ -1999,54 +2062,41 @@ def nnnReorder(args, tmp_folder, stored_tree_ind, maxMoves=100, closenessBound=0
             # Since we will calculate reorderings from every node, it is beneficial to get AIRootInfo all at once
             scData.tree.root.getAIRootInfo(None, None)
 
-        myTasks = getMyTaskNumbers(nCandidates, mpiInfo.size, mpiInfo.rank, skippingSteps=False)
+        # The candidates whose reconfiguration is not known (or no longer reliable) are computed, dealt round-robin
+        # over the processes. Every process caches values on the nodes it reads, which changes no later value while
+        # every non-root node holds its ltqsVars. Otherwise (in mem_friendly mode, and from the first move at which a
+        # node holds only W), every process takes the candidates in its own block of candidatesList.
+        inBlocks = inBlocks or any(node.holdsOnlyW() for node in nodesList if not node.isRoot)
+        if inBlocks:
+            myCandidates = [candidatesList[ind] for ind in
+                            getMyTaskNumbers(nCandidates, mpiInfo.size, mpiInfo.rank, skippingSteps=False)]
+        else:
+            myCandidates = candidatesList
+        myTasks = [dsNode for dsNode in myCandidates if
+                   (dsNode.cumClosenessNNN is None) or (dsNode.cumClosenessNNN > closenessBound)]
+        if not inBlocks:
+            myTasks = myTasks[mpiInfo.rank::mpiInfo.size]
         nTasks = len(myTasks)
-        calcCounter = 0
-        maxReorder = (-1, -1e9)
-        maxReorderNoTopChange = (-1, -1e9)
+        calcCounter = nTasks
         # as reorderDlogL we will store tuples (dLogL, topChangeYN) where second boolean indicates topology-change
         reorderDLogLs = {}
-        for myInd, ind in enumerate(myTasks):
-            dsNode = candidatesList[ind]
+        for myInd, dsNode in enumerate(myTasks):
             if verbose and ((myInd + 1) % 1000 == 0):
                 mp_print("Move %d. Considering edge %d out of %d." % (moveCounter, myInd + 1, nTasks),
                          ALL_RANKS=True)
-
-            if (dsNode.cumClosenessNNN is not None) and (dsNode.cumClosenessNNN <= closenessBound):
-                reorderDLogL = dsNode.nnnLoglik
-                topChange = dsNode.nnnLoglikTopChange
-            else:
-                calcCounter += 1
-                reorderDLogL, topChange = scData.tree.getOptEdgeList(dsNode, args, finalOptTimes=False,
-                                                                     returnEdgelist=False, singleProcess=True,
-                                                                     mem_friendly=mem_friendly)
-                if reorderDLogL is None:
-                    if verbose:
-                        message = "node %d" % dsNode.nodeInd if dsNode.parentNode is None \
-                            else "nodes %d and %d" % (dsNode.nodeInd, dsNode.parentNode.nodeInd)
-                        mp_print(
-                            "Reconfiguration around %s is skipped because of many connected nodes." % message,
-                            ALL_RANKS=True)
-                    reorderDLogL = -1
-                    topChange = False
-                reorderDLogLs[dsNode.nodeInd] = (reorderDLogL, topChange)
-            if topChange and (reorderDLogL > maxReorder[1]):
-                maxReorder = (dsNode.nodeInd, reorderDLogL)
-            elif (not topChange) and (reorderDLogL > maxReorderNoTopChange[1]):
-                maxReorderNoTopChange = (dsNode.nodeInd, reorderDLogL)
-
-        # Communicate maxima and take only the maximum
-        maxReorderTuples = mpi_wrapper.world_allgather(maxReorder)
-        _, maxReorders = zip(*maxReorderTuples)
-        maxReorder = maxReorderTuples[np.argmax(maxReorders)]
-        maxReorderNoTopChangeTuples = mpi_wrapper.world_allgather(maxReorderNoTopChange)
-        _, maxReordersNoTopChange = zip(*maxReorderNoTopChangeTuples)
-        maxReorderNoTopChange = maxReorderNoTopChangeTuples[np.argmax(maxReordersNoTopChange)]
-
-        # mp_print("Reconfig without topology change: %f. With topology change: %f" % (
-        #       maxReorderNoTopChange[1], maxReorder[1]))
-        # if maxReorderNoTopChange[1] > maxReorder[1]:
-        #     mp_print("Reconfig without topology change is larger than with topology change.")
+            reorderDLogL, topChange = scData.tree.getOptEdgeList(dsNode, args, finalOptTimes=False,
+                                                                 returnEdgelist=False, singleProcess=True,
+                                                                 mem_friendly=mem_friendly)
+            if reorderDLogL is None:
+                if verbose:
+                    message = "node %d" % dsNode.nodeInd if dsNode.parentNode is None \
+                        else "nodes %d and %d" % (dsNode.nodeInd, dsNode.parentNode.nodeInd)
+                    mp_print(
+                        "Reconfiguration around %s is skipped because of many connected nodes." % message,
+                        ALL_RANKS=True)
+                reorderDLogL = -1
+                topChange = False
+            reorderDLogLs[dsNode.nodeInd] = (reorderDLogL, topChange)
 
         # Communicate calculated reorderDLogLs and add to dsNodes
         reorderDLogLsAll = mpi_wrapper.world_allgather(reorderDLogLs)
@@ -2056,6 +2106,12 @@ def nnnReorder(args, tmp_folder, stored_tree_ind, maxMoves=100, closenessBound=0
                 nodeOI.nnnLoglik = reorderDLogLsSingle[nodeInd][0]
                 nodeOI.nnnLoglikTopChange = reorderDLogLsSingle[nodeInd][1]
                 nodeOI.cumClosenessNNN = 0.
+        # The candidate that maximally increases the loglikelihood with a topology change, the first in
+        # candidatesList among equals
+        maxReorder = (-1, -1e9)
+        for dsNode in candidatesList:
+            if dsNode.nnnLoglikTopChange and (dsNode.nnnLoglik > maxReorder[1]):
+                maxReorder = (dsNode.nodeInd, dsNode.nnnLoglik)
         calcCounters = mpi_wrapper.gather(calcCounter, root=0)
         if mpiInfo.rank == 0:
             calcCounter = sum(calcCounters)
@@ -2090,7 +2146,9 @@ def nnnReorder(args, tmp_folder, stored_tree_ind, maxMoves=100, closenessBound=0
         # Process optimal reordering in the original tree
         # Find most-upstream-node in original tree. In most cases, not all children will be reconfigured, only these
         # should be deleted
-        scData.tree.processOptReconfig(optEdgeList, nodeIndToNode, nodesList, candidatesList, mostUSInfo)
+        scData.tree.processOptReconfig(optEdgeList, nodeIndToNode, nodesList, candidatesList, mostUSInfo,
+                                       subtree_only=reconfigured)
+        reconfigured = True
         moveCounter += 1
 
         # TODO: Remove eventually, only uncomment this for making animations
@@ -2109,6 +2167,8 @@ def nnnReorder(args, tmp_folder, stored_tree_ind, maxMoves=100, closenessBound=0
                 # pickleTree(tmp_folder, 'nnn_tree_%d.dat' % stored_tree_ind, self.tree)
                 # removePickledTrees(tmpFolder, removeDir=False, notRemove=stored_tree_ind, base='random')
                 # stored_tree_ind += 1
+            # Storing can correct tree.nNodes, which a subtree-only re-count would then start from
+            reconfigured = False
     if mpiInfo.rank == 0:
         remove_tree_folders(tmp_folder, removeDir=True, base='nnn')
         # removePickledTrees(tmpFolder, removeDir=False, base='random')
@@ -2567,6 +2627,12 @@ def load_data_for_tree(scData, tree_folder, vertind_to_node, get_all_data=True, 
                 if ltqs_cg.shape[0] != bs_glob.nNodes:
                     raise Exception("Trying to load data for {} nodes, "
                                     "while tree has {} nodes.".format(ltqs_cg.shape[0], bs_glob.nNodes))
+                if (bs_glob.nCells is not None) and (bs_glob.nCells <= 25000) and (not bs_glob.mem_friendly):
+                    # Rows of a plain-ndarray view of the same mapping, so that numpy operations on them skip the
+                    # memmap subclass's Python hooks. In mem_friendly mode getW() relies on the rows being memmaps.
+                    ltqs_rows, ltqsVars_rows = ltqs_cg.view(np.ndarray), ltqsVars_cg.view(np.ndarray)
+                else:
+                    ltqs_rows, ltqsVars_rows = ltqs_cg, ltqsVars_cg
                 for vert_ind in range(bs_glob.nNodes):
                     if (vert_ind == print_ind) and verbose:
                         print_ind *= 2
@@ -2574,11 +2640,11 @@ def load_data_for_tree(scData, tree_folder, vertind_to_node, get_all_data=True, 
                             vert_ind, bs_glob.nNodes, time.time() - start))
                     node = vertind_to_node[vert_ind]
                     if posteriors_found:
-                        node.ltqsAIRoot = ltqs_cg[vert_ind, :]
-                        node.setLtqsVarsOrW(ltqsVars=ltqsVars_cg[vert_ind, :], AIRoot=True)
+                        node.ltqsAIRoot = ltqs_rows[vert_ind, :]
+                        node.setLtqsVarsOrW(ltqsVars=ltqsVars_rows[vert_ind, :], AIRoot=True)
                     else:
-                        node.ltqs = ltqs_cg[vert_ind, :]
-                        node.setLtqsVarsOrW(ltqsVars=ltqsVars_cg[vert_ind, :])
+                        node.ltqs = ltqs_rows[vert_ind, :]
+                        node.setLtqsVarsOrW(ltqsVars=ltqsVars_rows[vert_ind, :])
                     node.isCell = node.nodeId in cell_id_set
                 n_bad = 0
                 for check_vert_ind, check_node in vertind_to_node.items():
@@ -2596,6 +2662,8 @@ def load_data_for_tree(scData, tree_folder, vertind_to_node, get_all_data=True, 
                              (n_bad, bs_glob.nNodes), WARNING=True, ALL_RANKS=True)
                 del ltqs_cg
                 del ltqsVars_cg
+                del ltqs_rows
+                del ltqsVars_rows
                 gc.collect()
                 if verbose:
                     mp_print("Loaded coordinates for %d vertices out of %d in %.2f seconds." % (

@@ -1,20 +1,23 @@
 from bonsai.bonsai_helpers import *
 
 import bonsai.bonsai_globals as bs_glob
+import bonsai.bonsai_kernels as bs_kernels
 import numpy as np
+import math
 import time
 from scipy.optimize import brentq, minimize
 from scipy.spatial import distance
-from scipy.sparse import csr_array, lil_array
 import itertools
 import os
 import gc
 from itertools import permutations
 from bonsai.bonsai_approxNN import getApproxNNs
+from bonsai.bonsai_lbfgsb import minimizeLBFGSB
 import pandas as pd
 from downstream_analyses.get_clusters_max_diameter import get_min_pdists_clustering_from_nwk_str
 import json
 import heapq
+import operator
 
 # TODO: Remove this
 
@@ -60,6 +63,7 @@ class TreeNode:
 
     nnnLoglik = None  # Loglikelihood increase when next-nearest-neighbours of this node are reconfigured
     cumClosenessNNN = None
+    nnnCandidates = None  # Number of non-leaf, non-root nodes in this subtree, kept by nnnReorderRandom
 
     def __init__(self, nodeInd=None, childNodes=None, parentNode=None, isLeaf=False, isRoot=False,
                  ltqs=None, ltqsVars=None, tParent=None, nodeId=None, isCell=False, vert_ind=None):
@@ -516,6 +520,13 @@ class TreeNode:
                         self._W_gAIRoot = None
             return self._ltqsVarsAIRoot
 
+    def holdsOnlyW(self):
+        return (self._ltqsVars is None) and (self._W_g is not None)
+
+    def getLtqsVarsUncached(self):
+        """What getLtqsVars() returns, without storing it on the node."""
+        return (1 / self._W_g) if self.holdsOnlyW() else self._ltqsVars
+
     # Used
     def getW(self, AIRoot=False, mem_friendly=False):
         mem_friendly = mem_friendly or bs_glob.mem_friendly
@@ -637,6 +648,15 @@ class TreeNode:
             self.prefactor += child.prefactor
         if not mem_friendly:
             ltqsChildren, ltqsVarsChildren, tChildren = self.getInfoChildren()
+            nodeStep = _compiledNodeStarTree(ltqsChildren, ltqsVarsChildren, tChildren)
+        else:
+            nodeStep = _compiledNodeStep(self.childNodes, withLoglik=True)
+        if nodeStep is not None:
+            self.ltqs, W_g, loglik = nodeStep
+            self.setLtqsVarsOrW(W_g=W_g)
+            self.prefactor += loglik
+            return
+        if not mem_friendly:
             self.ltqs, W_g, wbar_gi = findNodeLtqsGivenLeafs(ltqs_gi=ltqsChildren, ltqsVars_gi=ltqsVarsChildren,
                                                              t_i=tChildren, return_wbar_gi=True)
         else:
@@ -786,25 +806,46 @@ class TreeNode:
                 self.getLtqsComplete(mem_friendly=True)
 
     # Used
-    def mergeZeroTimeChilds(self):
-        # This function finds edges with zero length, then deletes the node downstream of this edge and adds the
-        # children of the deleted node as children of the node upstream of the edge
+    def mergeZeroTimeChilds(self, descendInto=None):
+        """
+        This function finds edges with zero length, then deletes the node downstream of this edge and adds the
+        children of the deleted node as children of the node upstream of the edge
+        :param descendInto: If given, the nodeInds of the only children to descend into. Every child that is visited is
+        still checked for a zero-length edge.
+        :return: The deleted nodes.
+        """
+        mergedNodes = []
         childrenToBeAdded = []
         childIndsToBeDeleted = []
         for ind, child in enumerate(self.childNodes):
             if not child.isLeaf:
-                child.mergeZeroTimeChilds()
+                if (descendInto is None) or (child.nodeInd in descendInto):
+                    mergedNodes += child.mergeZeroTimeChilds(descendInto=descendInto)
                 # Cell nodes represent a real measurement, not an inferred ancestor position.
                 # We do not delete these nodes as it would discard that cell's data.
                 if (child.tParent == 0) and (not child.isCell):
                     childrenToBeAdded += child.childNodes
                     childIndsToBeDeleted.append(ind)
                     child.parentNode = None
+                    mergedNodes.append(child)
         if len(childIndsToBeDeleted) > 0:
             for child in childrenToBeAdded:
                 child.parentNode = self
             self.childNodes = [child for ind, child in enumerate(self.childNodes) if ind not in childIndsToBeDeleted]
             self.childNodes += childrenToBeAdded
+        return mergedNodes
+
+    def getReconfiguredNodes(self, childrenNotInvolved, edgeLeafInds):
+        """The nodes below this node that a reconfiguration from getOptEdgeList replaces: everything below the
+        children involved in it, down to the leaves of its edge list (not included)."""
+        reconfiguredNodes = []
+        nodes = [child for child in self.childNodes if child.nodeInd not in childrenNotInvolved]
+        while nodes:
+            node = nodes.pop()
+            if node.nodeInd not in edgeLeafInds:
+                reconfiguredNodes.append(node)
+                nodes.extend(node.childNodes)
+        return reconfiguredNodes
 
     # Used
     def renumberNodes(self, change_node_inds=False):
@@ -1089,16 +1130,25 @@ class TreeNode:
                 mergeRoundStart = time.time()
 
             # At this point, we stop all processes except for process 0. These processes will only continue whenever it
-            # gets a message to either A) break out of the while-loop, because the function is done, or B) move to the
-            # part of the function where parallel computing is required.
+            # gets a message to either A) break out of the while-loop, because the function is done, B) move to the
+            # part of the function where parallel computing is required, or C) help process 0 with the
+            # time-optimisation of the root's children or with the pairs of a round it runs alone, after which it
+            # waits again.
             if mpiInfo.rank != 0:
                 computeOrBreak = None
                 computeOrBreak = mpi_wrapper.bcast(computeOrBreak, root=0)
-                # This will be a string, that can be either "break" or "continue", which mean that the process should
-                # quit the function or continue to the parallel part, respectively.
+                # This will be a string, that can be either "break", "continue", "tstar" or "pairs", which mean that the
+                # process should quit the function, continue to the parallel part, run optimiseTStarWorker or run
+                # mergePairsWorker, respectively.
                 if computeOrBreak == 'break':
                     changedSomething = None
                     break
+                elif computeOrBreak == 'tstar':
+                    optimiseTStarWorker(mpiInfo)
+                    continue
+                elif computeOrBreak == 'pairs':
+                    mergePairsWorker()
+                    continue
                 elif computeOrBreak != 'continue':
                     mp_print("That's weird. I got this message: ", computeOrBreak, ALL_RANKS=True)
 
@@ -1153,8 +1203,11 @@ class TreeNode:
                                  "connected to the root." % mpiInfo.rank, ALL_RANKS=True)
                     runConfigs['redoTimeAt'] = max(int(chInfo['nChild'] * redoTimeFrac), 10)
                     timeOptInfo['timeOptRoundsAgo'] = 0
+                    if leaderOfMany:
+                        mpi_wrapper.bcast('tstar', root=0)
                     optimisedTimes, WAsIfRoot_g, xrAsIfRoot_g = self.optimiseConnected(mpiInfo, verbose=verbose,
-                                                                                       singleProcess=True)
+                                                                                       singleProcess=True,
+                                                                                       tStarMpiInfo=mpiInfo)
                     newAnc = None
                     changedSomething = True
                     continue
@@ -1203,6 +1256,13 @@ class TreeNode:
             pairs, nPairs, nNewPairs = pairInfoTuple
             myTasks = getMyTaskNumbers(nPairs, mpiInfoTmp.size, mpiInfoTmp.rank, skippingSteps=runConfigs['useUBNow'])
             nTasks = len(myTasks)
+            # In a round that process 0 runs alone, the waiting processes compute the pairs for it
+            if leaderOfMany and (not runConfigs['parNow']) and (nTasks > 1):
+                pool = MergePairPool(self, (xrAsIfRoot_g, WAsIfRoot_g, chInfo['nChild'], sequential), myTasks, pairs,
+                                     nNewPairs, chInfo['nodeIndToChildInd'], runConfigs['useUB'],
+                                     runConfigs['useUBNow'], mpiInfo)
+            else:
+                pool = None
 
             # mp_print("Memory 1 ", psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2, " MB.", ONLY_RANK=1)
 
@@ -1265,43 +1325,54 @@ class TreeNode:
                 # Calculate loglikelihood for current pair and (if runConfigs allow) estimate UB
                 # Gather all necessary information on the candidate pair.
                 # mp_print("Memory 5 ", psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2, " MB.", ONLY_RANK=1)
-                if ind1 != oldInd1:  # If child1 is the same as before, we re-use some information.
-                    if not runConfigs['parNow']:
-                        # If this round is not run in parallel, information needs to be collected from child-objects
-                        child2, sortedNodeInds, child1, child1Tuple, rootMinusFirst_ltqs, rootMinusFirst_W_g = self.getChildInfo(
-                            xrAsIfRoot_g, WAsIfRoot_g, ind1, ind2, nodeInd1, recalcInd1=True)
-                        tOld1, wbar1_g, ltqs1, ltqsVars1, nodeInd1 = child1Tuple
-                    else:
-                        # If this round is run in parallel, information was already stored in numpy-objects
-                        tOld1 = tChildren[ind1]
-                        ltqs1 = ltqsChildren[:, ind1]
-                        ltqsVars1 = ltqsVarsChildren[:, ind1]
-                        wbar1_g = 1 / (tOld1 + ltqsVars1)
-                        rootMinusFirst_W_g = WAsIfRoot_g - wbar1_g
-                        rootMinusFirst_ltqs = xrAsIfRoot_g * WAsIfRoot_g - wbar1_g * ltqs1
-                        # mp_print("Memory 5a ", psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2, " MB.", ONLY_RANK=1)
-                    oldInd1 = ind1
-                elif not runConfigs['parNow']:
-                    # If this round is not run in parallel, but child1 remained, we get child2 info from child-objects
-                    child2, sortedNodeInds = self.getChildInfo(xrAsIfRoot_g, WAsIfRoot_g, ind1, ind2, nodeInd1,
-                                                               recalcInd1=False)
-                # Finally, we get child2-info in the same way depending on parallelization.
-                if runConfigs['parNow']:
-                    tOld2 = tChildren[ind2]
-                    ltqs2 = ltqsChildren[:, ind2]
-                    ltqsVars2 = ltqsVarsChildren[:, ind2]
-                    wbar2_g = 1 / (tOld2 + ltqsVars2)
-                    sortedNodeInds = tuple(sorted([nodeInd1, nodeInd2]))
+                if pool is not None:
+                    # The pool computed this pair. The children's variances are still read as the serial computation
+                    # reads them, because reading stores them on the nodes.
+                    if ind1 != oldInd1:
+                        self.childNodes[ind1].getLtqsVars()
+                        oldInd1 = ind1
+                    child2 = self.childNodes[ind2]
+                    child2.getLtqsVars()
+                    sortedNodeInds = tuple(sorted([nodeInd1, child2.nodeInd]))
+                    dLogLPair, optTimes, ubTerms = pool.fetch(indTask)
                 else:
-                    tOld2, wbar2_g, ltqs2, ltqsVars2, nodeInd2 = child2.getInfo()
-                # Calculate increase in loglikelihood at optimal diff. times for this pair
-                dLogLPair, optTimes, ltqs_gi, ltqsVars_gi, wir_gi = calcSingleDLogL(xrAsIfRoot_g, WAsIfRoot_g, ltqs1,
-                                                                                    ltqsVars1, wbar1_g, tOld1,
-                                                                                    rootMinusFirst_W_g,
-                                                                                    rootMinusFirst_ltqs, ltqs2,
-                                                                                    ltqsVars2, wbar2_g, tOld2,
-                                                                                    sequential=sequential, tol=1e-4,
-                                                                                    returnAll=True)
+                    if ind1 != oldInd1:  # If child1 is the same as before, we re-use some information.
+                        if not runConfigs['parNow']:
+                            # If this round is not run in parallel, information needs to be collected from child-objects
+                            child2, sortedNodeInds, child1, child1Tuple, rootMinusFirst_ltqs, rootMinusFirst_W_g = \
+                                self.getChildInfo(xrAsIfRoot_g, WAsIfRoot_g, ind1, ind2, nodeInd1, recalcInd1=True)
+                            tOld1, wbar1_g, ltqs1, ltqsVars1, nodeInd1 = child1Tuple
+                        else:
+                            # If this round is run in parallel, information was already stored in numpy-objects
+                            tOld1 = tChildren[ind1]
+                            ltqs1 = ltqsChildren[:, ind1]
+                            ltqsVars1 = ltqsVarsChildren[:, ind1]
+                            wbar1_g = 1 / (tOld1 + ltqsVars1)
+                            rootMinusFirst_W_g = WAsIfRoot_g - wbar1_g
+                            rootMinusFirst_ltqs = xrAsIfRoot_g * WAsIfRoot_g - wbar1_g * ltqs1
+                        oldInd1 = ind1
+                    elif not runConfigs['parNow']:
+                        # If this round is not run in parallel, but child1 remained, we get child2 info from
+                        # child-objects
+                        child2, sortedNodeInds = self.getChildInfo(xrAsIfRoot_g, WAsIfRoot_g, ind1, ind2, nodeInd1,
+                                                                   recalcInd1=False)
+                    # Finally, we get child2-info in the same way depending on parallelization.
+                    if runConfigs['parNow']:
+                        tOld2 = tChildren[ind2]
+                        ltqs2 = ltqsChildren[:, ind2]
+                        ltqsVars2 = ltqsVarsChildren[:, ind2]
+                        wbar2_g = 1 / (tOld2 + ltqsVars2)
+                        sortedNodeInds = tuple(sorted([nodeInd1, nodeInd2]))
+                    else:
+                        tOld2, wbar2_g, ltqs2, ltqsVars2, nodeInd2 = child2.getInfo()
+                    # Calculate increase in loglikelihood at optimal diff. times for this pair
+                    dLogLPair, optTimes, ltqs_gi, ltqsVars_gi, wir_gi = calcSingleDLogL(xrAsIfRoot_g, WAsIfRoot_g,
+                                                                                        ltqs1, ltqsVars1, wbar1_g,
+                                                                                        tOld1, rootMinusFirst_W_g,
+                                                                                        rootMinusFirst_ltqs, ltqs2,
+                                                                                        ltqsVars2, wbar2_g, tOld2,
+                                                                                        sequential=sequential,
+                                                                                        tol=1e-4, returnAll=True)
                 pairsDone += 1
                 # If useUB, make UB-estimate
                 if runConfigs['useUB'] and (task < nNewPairs):
@@ -1311,12 +1382,15 @@ class TreeNode:
                     # it will run out of the original ellipsoid. This is very unlikely.
                     justUseNewRoot = True
                     if justUseNewRoot:
-                        rootInfo = {"pos": xrAsIfRoot_g, "prec": WAsIfRoot_g, "nChild": chInfo['nChild']}
-                        dLogLOld, ddLogLPerEpsx, ddLogLPerEpsW = estimateDerBasedDLogLUB(rootInfo,
-                                                                                         optTimes,
-                                                                                         ltqs_gi=ltqs_gi,
-                                                                                         ltqsVars_gi=ltqsVars_gi,
-                                                                                         wir_gi=wir_gi)
+                        if pool is not None:
+                            ddLogLPerEpsx, ddLogLPerEpsW = ubTerms
+                        else:
+                            rootInfo = {"pos": xrAsIfRoot_g, "prec": WAsIfRoot_g, "nChild": chInfo['nChild']}
+                            dLogLOld, ddLogLPerEpsx, ddLogLPerEpsW = estimateDerBasedDLogLUB(rootInfo,
+                                                                                             optTimes,
+                                                                                             ltqs_gi=ltqs_gi,
+                                                                                             ltqsVars_gi=ltqsVars_gi,
+                                                                                             wir_gi=wir_gi)
                         UBInfo['tuples'][sortedNodeInds] = (dLogLPair, ddLogLPerEpsx, ddLogLPerEpsW)
                     # else:
                     #     if runConfigs['getNewUB']:  # Using this we use the just calculated optTimes
@@ -1346,6 +1420,8 @@ class TreeNode:
                     if dLogLPair > maxdLogLZeroRoot[2]:
                         maxdLogLZeroRoot = (sortedNodeInds[0], sortedNodeInds[1], dLogLPair)
 
+            if pool is not None:
+                pool.close()
             # mp_print("Testing the merge pairs took {} seconds.".format(time.time() - start_testing_merges), DEBUG=True)
             start_post_process = time.time()
             """Optimal pair was found. Processing merge starts here."""
@@ -1639,7 +1715,7 @@ class TreeNode:
                     runConfigs['getNewNN'] = False
                     NNInfo['NNcounter'] = 0
                 else:
-                    oldPairs_array = np.array(oldPairs)
+                    oldPairs_array = oldPairs.asArray() if isinstance(oldPairs, PairSequence) else np.array(oldPairs)
                     rows_to_be_del = np.where(np.isin(oldPairs_array, del_node_inds).any(axis=1))[0]
                     oldPairs = list(map(tuple, np.delete(oldPairs_array, rows_to_be_del, axis=0)))
                     if newAnc is None:
@@ -1680,7 +1756,7 @@ class TreeNode:
             if newAnc is None:
                 if not runConfigs['getNewNN']:
                     # When no new ancestor was added (e.g. optimised times instead of merge) -> sorted UB-pairs
-                    old_pairs = list(map(tuple, UBInfo['pairs']))
+                    old_pairs = ubPairSequence(UBInfo['pairs'])
                     new_pairs = []
                 else:
                     # so we re-use UBs, recalculate NNs
@@ -1695,7 +1771,7 @@ class TreeNode:
                     new_pairs_to_ind = {new_pair: ind for ind, new_pair in enumerate(new_pairs)}
                     inds_to_be_del = []
                     for ind, pair in enumerate(map(tuple, np.array(UBInfo['pairs']))):
-                        if pair in new_pairs:
+                        if pair in new_pairs_to_ind:
                             new_ind = new_pairs_to_ind[pair]
                             # newInd = new_pairs.index(pair)
                             existingUBPairs.append(pair)
@@ -1710,7 +1786,7 @@ class TreeNode:
                         UBInfo['pairs'] = np.array(existingUBPairs)
                     UBInfo['UBs'] = np.array(existingUBs)
                     # nNewPairs = len(pairs)
-                    old_pairs = list(map(tuple, UBInfo['pairs']))
+                    old_pairs = ubPairSequence(UBInfo['pairs'])
             else:
                 # We need to add new pairs (e.g. with new ancestor) first, then the sorted UB-pairs
                 if not runConfigs['useNN']:
@@ -1721,7 +1797,7 @@ class TreeNode:
                 elif not runConfigs['getNewNN']:
                     new_pairs = self.get_new_nn_pairs(newAnc, NNInfo, runConfigs, UBInfo=UBInfo, xrAIRoot=xrAsIfRoot_g,
                                                       xrVarsAIRoot=xrVarsAsIfRoot_g)
-                    old_pairs = list(map(tuple, UBInfo['pairs']))
+                    old_pairs = ubPairSequence(UBInfo['pairs'])
                 else:
                     # so we re-use UBs, recalculate NNs
                     # First get all NNs
@@ -1751,7 +1827,7 @@ class TreeNode:
                     new_pairs_to_ind = {new_pair: ind for ind, new_pair in enumerate(new_pairs)}
                     inds_to_be_del = []
                     for ind, pair in enumerate(map(tuple, np.array(UBInfo['pairs']))):
-                        if pair in new_pairs:
+                        if pair in new_pairs_to_ind:
                             new_ind = new_pairs_to_ind[pair]
                             # newInd = new_pairs.index(pair)
                             existingUBPairs.append(pair)
@@ -1782,11 +1858,15 @@ class TreeNode:
                     if verbose:
                         mp_print("Finding nearest neighbour pairs for which UB is already known took %f seconds." % (
                                 time.time() - start_keeping_known_UBs), DEBUG=True)
-                    old_pairs = list(map(tuple, UBInfo['pairs']))
+                    old_pairs = ubPairSequence(UBInfo['pairs'])
 
         if runConfigs['useNN']:
             # Test whether there are enough nearest neighbours for each node. Otherwise, get new NNs next round
-            unq_node_inds, counts = np.unique(np.array(old_pairs + new_pairs), return_counts=True)
+            if isinstance(old_pairs, PairSequence):
+                all_pairs_array = PairSequence(new_pairs + old_pairs.head, old_pairs.rows).asArray()
+            else:
+                all_pairs_array = np.array(old_pairs + new_pairs)
+            unq_node_inds, counts = np.unique(all_pairs_array, return_counts=True)
             # TODO: Check if we cannot just keep track of these counts
             few_nn_inds = unq_node_inds[
                 np.where(counts <= 0.2 * runConfigs['kNN'])[0]]  # TODO: Only do those problematic ones
@@ -1873,7 +1953,10 @@ class TreeNode:
         #
         # nPairs = len(pairs)
         nNewPairs = len(new_pairs)
-        pairs = new_pairs + old_pairs
+        if isinstance(old_pairs, PairSequence):
+            pairs = PairSequence(new_pairs + old_pairs.head, old_pairs.rows)
+        else:
+            pairs = new_pairs + old_pairs
         nPairs = len(pairs)
         return pairs, nPairs, nNewPairs
 
@@ -2144,20 +2227,9 @@ class TreeNode:
             pairs.update(
                 [tuple(sorted(pair)) for pair in zip([nodeInd] * (kNN + 1), nns[row, :]) if pair[0] != pair[1]])
         pairs = sorted(pairs)
-        # We store the nearest neighbor-information in a connectivity matrix
-        # TODO: Clean this up, check if it can be done more efficient
+        # We store the nearest neighbor-information in a connectivity matrix, adding to the old nearest neighbors
         pairs_array = np.array(pairs)
-        # Note that we make the sparse matrix dimensions twice the number of cells. In this way we can store the
-        # adjacency between nodes even when we have the maximal number of nodes (in a fully binary tree).
-        connectivity_mat = csr_array((np.ones(pairs_array.shape[0]), (pairs_array[:, 0], pairs_array[:, 1])),
-                                     shape=(2 * bs_glob.nCells, 2 * bs_glob.nCells), dtype=bool)
-        connectivity_mat_T = csr_array((np.ones(pairs_array.shape[0]), (pairs_array[:, 1], pairs_array[:, 0])),
-                                       shape=(2 * bs_glob.nCells, 2 * bs_glob.nCells), dtype=bool)
-        connectivity_mat = connectivity_mat + connectivity_mat_T
-        connectivity_mat = lil_array(connectivity_mat)
-
-        # Take old nearest neighbors and add the newly calculated ones
-        NNInfo['conn_mat'] += connectivity_mat
+        getNNConnectivity(NNInfo).add_symmetric(pairs_array[:, 0], pairs_array[:, 1])
 
         # We also store information of to what current child-node each node in the knn-index is mapped
         NNInfo['leafToChild'] = {nodeInd: nodeInd for nodeInd in nodeInds}
@@ -2234,19 +2306,21 @@ class TreeNode:
                 pairs = pairs[:runConfigs['kNN']]
             # Update the connectivity matrix for the nearest neighbors with these new pairs
             pairs_array = np.array(pairs)
-            NNInfo['conn_mat'][pairs_array[:, 0], pairs_array[:, 1]] = True
-            NNInfo['conn_mat'][pairs_array[:, 1], pairs_array[:, 0]] = True
+            connectivity = getNNConnectivity(NNInfo)
+            connectivity.set_entries(pairs_array[:, 0], pairs_array[:, 1])
+            connectivity.set_entries(pairs_array[:, 1], pairs_array[:, 0])
 
         pairs = [(new_node.nodeInd, nb_nodeInd) for nb_nodeInd in
-                 NNInfo['conn_mat'][[new_node.nodeInd], :].nonzero()[1]]
+                 getNNConnectivity(NNInfo).row_indices(new_node.nodeInd)]
         if old_pairs_list is not None:
             return pairs, old_pairs_list
         return pairs
 
-    def optimiseConnected(self, mpiInfo, singleProcess=False, verbose=True):
+    def optimiseConnected(self, mpiInfo, singleProcess=False, verbose=True, tStarMpiInfo=None):
         if (mpiInfo.rank == 0) or singleProcess:
             ltqsCh, ltqsVarsCh, tCh = self.getInfoChildren()
-            tStar, loglik, W_g, xr_g = optimiseTStar(ltqsCh, ltqsVarsCh, verbose=verbose, nChilds=len(self.childNodes))
+            tStar, loglik, W_g, xr_g = optimiseTStar(ltqsCh, ltqsVarsCh, verbose=verbose, nChilds=len(self.childNodes),
+                                                     mpiInfo=tStarMpiInfo)
         else:
             tStar = None
             W_g = None
@@ -2310,10 +2384,12 @@ class TreeNode:
         runConfigs['nChildNN'] = nChildNN
         runConfigs['nChildUB'] = nChildUB
         runConfigs['kNN'] = kNN
-        # We initialize NNInfo, even if NNs are not used, to prevent bugs, but initializing the lil_array takes time
+        # We initialize NNInfo, even if NNs are not used, to prevent bugs. The connectivity matrix has twice the number
+        # of cells as dimensions, so that it can store the adjacency between nodes even when we have the maximal
+        # number of nodes (in a fully binary tree).
         NNInfo = {'NNcounter': 0, 'conn_mat': None, 'subtracted_mean': None}
         if runConfigs['useNN']:
-            NNInfo['conn_mat'] = lil_array((2 * bs_glob.nCells, 2 * bs_glob.nCells), dtype=bool)
+            NNInfo['conn_mat'] = NNConnectivity(2 * bs_glob.nCells)
 
         # Determine how we communicate data between processes (mem-friendly, using memmap) or not
         runConfigs['n_mem_friendly'] = n_mem_friendly
@@ -2618,15 +2694,14 @@ class TreeNode:
         # We make the new ancestor inherit the nearest neighbors from the merged child-nodes
         if runConfigs['useNN'] and (NNInfo is not None):
             # First add the neighbor-connections from the merged children
-            NN_conn_mat = NNInfo['conn_mat']
+            NN_conn_mat = getNNConnectivity(NNInfo)
             for gchild_nodeInd in gchildInds:
                 # TODO: Check if this is necessary
                 # NN_conn_mat[:, [newNode.nodeInd]] += NN_conn_mat[:, [gchild_nodeInd]]
                 # Then delete the neighbor-information for the already merged children (out of efficiency)
-                NN_conn_mat[:, [gchild_nodeInd]] = 0
-                NN_conn_mat[[gchild_nodeInd], :] = 0
-            NN_conn_mat[[newNode.nodeInd], :] += NN_conn_mat.T[[newNode.nodeInd], :]
-            NN_conn_mat[newNode.nodeInd, newNode.nodeInd] = 0
+                NN_conn_mat.clear_column(gchild_nodeInd)
+                NN_conn_mat.clear_row(gchild_nodeInd)
+            NN_conn_mat.add_column_to_row(newNode.nodeInd)
         # Lastly, we delete the two merged children from the root-childnodes and add the new node
         self.childNodes = [child for ind, child in enumerate(self.childNodes) if ind not in delInds]
         if not addAsChild:
@@ -2690,6 +2765,15 @@ class TreeNode:
             child.parentNode = self
             if not child.isLeaf:
                 child.storeParent()
+
+    def clearParentNodes(self):
+        """Removes the parent links in this subtree, so that a tree that is thrown away is freed by reference
+        counting instead of waiting for the cyclic garbage collector."""
+        nodes = [self]
+        while nodes:
+            node = nodes.pop()
+            node.parentNode = None
+            nodes.extend(node.childNodes)
 
     def getAIRootInfo(self, ltqsParent, W_gParent):
         if self.isRoot:
@@ -2895,16 +2979,22 @@ class TreeNode:
         self.getAIRootUpstream(as_if_root_version=as_if_root_version)
 
         # Then, finally, we are ready to go.
-        opt_t, converged = getOptTime2LeafTree(ltqs1_g=self.ltqsAIRoot, ltqsVars1_g=self.getLtqsVars(AIRoot=True),
-                                               ltqs2_g=ltqs_cand_g, ltqsVars2_g=ltqsVars_cand_g, tol=1e-4)
+        sprMove = _compiledSPRMove(self.ltqsAIRoot, self.getLtqsVars(AIRoot=True), ltqs_cand_g, ltqsVars_cand_g)
+        if sprMove is not None:
+            opt_t, converged, dlogl_target = sprMove
+        else:
+            opt_t, converged = getOptTime2LeafTree(ltqs1_g=self.ltqsAIRoot,
+                                                   ltqsVars1_g=self.getLtqsVars(AIRoot=True), ltqs2_g=ltqs_cand_g,
+                                                   ltqsVars2_g=ltqsVars_cand_g, tol=1e-4)
         # opt_t = orig_ti
         if not converged:
             logger.warning("Somehow, the optimization of the branch length in an SPR move diverged, setting branch "
                            "length to 1.")
             opt_t = 1
 
-        dlogl_target = getLoglik2LeafTree(ltqs1_g=self.ltqsAIRoot, ltqsVars1_g=self.getLtqsVars(AIRoot=True),
-                                          ltqs2_g=ltqs_cand_g, ltqsVars2_g=ltqsVars_cand_g, t=opt_t)
+        if sprMove is None:
+            dlogl_target = getLoglik2LeafTree(ltqs1_g=self.ltqsAIRoot, ltqsVars1_g=self.getLtqsVars(AIRoot=True),
+                                              ltqs2_g=ltqs_cand_g, ltqsVars2_g=ltqsVars_cand_g, t=opt_t)
         if spr_target_version is not None:
             self._spr_target_version = spr_target_version
             self._spr_target_dlogl = dlogl_target
@@ -3014,6 +3104,122 @@ class TreeNode:
         # print_memory("Finished clearing memory.")
 
 
+class _OptTimesObjective:
+    """Tree.getNegLikelihoodGradGivenLogTimesWrapper with mem_friendly=True for one Tree.optTimes call, computed by
+    kernels on a table of the tree without changing any node. An evaluation where numpy would warn runs the recursive
+    objective instead, which sets the nodes as before; finish() leaves the nodes' derivatives as the last evaluation
+    would have."""
+
+    @classmethod
+    def build(cls, tree, nodeInds, mem_friendly):
+        """The objective, or None where Tree.optTimes has to minimise the recursive one."""
+        root = tree.root
+        if (not mem_friendly or bs_glob.mem_friendly or not _underflowIgnored() or root.isLeaf or not root.isRoot
+                or not root.childNodes):
+            return None
+        # Nodes in pre-order, as TreeNode.getTs lists them
+        nodes = []
+        pending = [root]
+        while pending:
+            node = pending.pop()
+            nodes.append(node)
+            pending.extend(reversed(node.childNodes))
+        if len(nodes) - 1 != len(nodeInds):
+            return None
+        for node, nodeInd in zip(nodes[1:], nodeInds):
+            if node.isRoot or node.nodeInd != nodeInd:
+                return None
+        leafLtqsVars = {}
+        for node in nodes:
+            if not node.isLeaf:
+                if not node.childNodes:
+                    return None
+                continue
+            if node.childNodes:
+                return None
+            ltqsVars_g = cls._leafLtqsVars(node)
+            if ltqsVars_g is None or not cls._isLeafVector(node.ltqs):
+                return None
+            leafLtqsVars[node] = ltqsVars_g
+        return cls(tree, nodes, leafLtqsVars)
+
+    @staticmethod
+    def _isLeafVector(vector):
+        return (isinstance(vector, np.ndarray) and vector.dtype == np.float64 and vector.shape == (bs_glob.nGenes,)
+                and np.all(np.isfinite(vector)))
+
+    @classmethod
+    def _leafLtqsVars(cls, leaf):
+        """What leaf.getLtqsVars(mem_friendly=True) returns, without storing a conversion (the getLtqsComplete that
+        ends Tree.optTimes stores it); None where the numpy code would warn."""
+        ltqsVars_g = leaf._ltqsVars
+        if ltqsVars_g is None:
+            if leaf._W_g is None:
+                return None
+            with np.errstate(all='ignore'):
+                ltqsVars_g = 1 / leaf._W_g
+        return ltqsVars_g if cls._isLeafVector(ltqsVars_g) else None
+
+    def __init__(self, tree, nodes, leafLtqsVars):
+        nGenes = bs_glob.nGenes
+        nEdges = len(nodes) - 1
+        rowOfNode = {node: row for row, node in enumerate(nodes)}
+        internalRows = [row for row, node in enumerate(nodes) if not node.isLeaf]
+        nInternal = len(internalRows)
+        self._nodes = nodes
+        self._internalRow_j = np.array(internalRows, dtype=np.int64)
+        self._rowInternal_r = np.full(nEdges + 1, -1, dtype=np.int64)
+        self._rowInternal_r[self._internalRow_j] = np.arange(nInternal)
+        childRows = [[rowOfNode[child] for child in nodes[row].childNodes] for row in internalRows]
+        self._childStart_j = np.cumsum([0] + [len(rows) for rows in childRows], dtype=np.int64)
+        self._childRow_e = np.array([row for rows in childRows for row in rows], dtype=np.int64)
+        self._ltqs_rg = np.empty((nEdges + 1, nGenes))
+        self._ltqsVars_rg = np.empty((nEdges + 1, nGenes))
+        for leaf, ltqsVars_g in leafLtqsVars.items():
+            self._ltqs_rg[rowOfNode[leaf]] = leaf.ltqs
+            self._ltqsVars_rg[rowOfNode[leaf]] = ltqsVars_g
+        self._logBuffer_eg = np.empty((nEdges + nInternal, nGenes))
+        self._sqDists_e = np.empty(nEdges)
+        self._xrAsIfRoot_jg = np.empty((nInternal, nGenes))
+        self._WAsIfRoot_jg = np.empty((nInternal, nGenes))
+        self._der_e = np.empty(nEdges)
+        self._derivativesPending = False
+        self._tree = tree
+
+    def __call__(self, logt, nodeInds, verbose=False, mem_friendly=False):
+        t = np.exp(logt)
+        loglik = self._loglik(t)
+        if loglik is None:
+            self._derivativesPending = False
+            loglik, grad = self._tree.getLikelihoodGradGivenTimes(t, nodeInds, verbose=verbose,
+                                                                  mem_friendly=mem_friendly)
+            return - loglik, - grad * t
+        self._derivativesPending = True
+        if verbose:
+            mp_print("Loglik = " + str(loglik), ALL_RANKS=True)
+        return - loglik, - self._der_e * t
+
+    def _loglik(self, t):
+        try:
+            status = bs_kernels.treeTerms(t, self._childStart_j, self._childRow_e, self._internalRow_j,
+                                          self._rowInternal_r, self._ltqs_rg, self._ltqsVars_rg, self._logBuffer_eg,
+                                          self._sqDists_e, self._xrAsIfRoot_jg, self._WAsIfRoot_jg, self._der_e)
+        except TypeError:
+            return None
+        if status != bs_kernels.DONE:
+            return None
+        np.log(self._logBuffer_eg, out=self._logBuffer_eg)
+        loglik = bs_kernels.treeLoglik(self._logBuffer_eg, self._sqDists_e, self._childStart_j, self._childRow_e,
+                                       self._rowInternal_r)
+        return np.float64(loglik) if math.isfinite(loglik) else None
+
+    def finish(self):
+        """Writes the last evaluation's derivatives to the nodes, unless the recursive objective made it."""
+        if self._derivativesPending:
+            for node, dLoglikdtParent in zip(self._nodes[1:], self._der_e):
+                node.dLoglikdtParent = dLoglikdtParent
+
+
 class Tree:
     root = None
     loglik = None
@@ -3032,7 +3238,11 @@ class Tree:
     def __repr__(self):
         return "Tree(root=%r\n\nloglik=%r,nNodes=%r)" % (self.root, self.loglik, self.nNodes)
 
-    def initialize_star_tree(self, ltqs, ltqsvars, metadata, opt_times=True, verbose=False):
+    def initialize_star_tree(self, ltqs, ltqsvars, metadata, opt_times=True, verbose=False, mpiInfo=None):
+        """
+        :param mpiInfo: Given (with more than one process) when the other processes wait in optimiseTStarWorker,
+        to share the time optimisation. They are released in any case.
+        """
         self.buildTree(ltqs, ltqsvars, metadata.cellIds)
 
         # TODO: Remove eventually, only uncomment this for making animations
@@ -3044,9 +3254,11 @@ class Tree:
         # Do initial optimisation of diffusion times along branches of star-tree
         start_timeopt = time.time()
         if opt_times:
-            t_star, opt_loglik, W_g, self.root.ltqs = optimiseTStar(ltqs, ltqsvars, verbose=verbose)
+            t_star, opt_loglik, W_g, self.root.ltqs = optimiseTStar(ltqs, ltqsvars, verbose=verbose, mpiInfo=mpiInfo)
             self.root.setLtqsVarsOrW(W_g=W_g)
         else:
+            if mpiInfo is not None:
+                mpi_wrapper.bcast(None, root=0)
             t_star = np.ones(bs_glob.nCells)
             opt_loglik = -1e9
 
@@ -3460,9 +3672,16 @@ class Tree:
             nodeInds, times = zip(*self.root.getTs({}).items())
             t0 = np.minimum(np.maximum(np.array(times), 1e-4), 1e4)
             bounds = ((-15, 15),) * len(t0)  # np.log(1e-6) = -13.815510557964274
-            optRes = minimize(self.getNegLikelihoodGradGivenLogTimesWrapper, np.log(t0),
-                              args=(nodeInds, verbose, mem_friendly,), tol=tol,
-                              options={'disp': False, 'maxiter': maxiter}, jac=True, bounds=bounds)
+            objective = _OptTimesObjective.build(self, nodeInds, mem_friendly)
+            fun = self.getNegLikelihoodGradGivenLogTimesWrapper if objective is None else objective
+            logt0 = np.log(t0)
+            args = (nodeInds, verbose, mem_friendly,)
+            optRes = minimizeLBFGSB(fun, logt0, args, bounds, tol, maxiter=maxiter)
+            if optRes is None:
+                optRes = minimize(fun, logt0, args=args, tol=tol,
+                                  options={'disp': False, 'maxiter': maxiter}, jac=True, bounds=bounds)
+            if objective is not None:
+                objective.finish()
             optTimes = np.exp(optRes.x)
             optTimes[optTimes < (1e-6 + 1e-6)] = 0.
             num_iterations = optRes.nit
@@ -3641,10 +3860,23 @@ class Tree:
         return optGeneVars
 
     def processOptReconfig(self, optEdgeList, nodeIndToNode, nodesList, candidatesList, mostUSInfo,
-                           trackCloseness=True):
+                           trackCloseness=True, subtree_only=False):
+        """
+        Applies a reconfiguration found by getOptEdgeList to this tree.
+
+        :param subtree_only: Merge zero-length edges and re-count nodes only among the reconfigured nodes, and remove
+        the nodes that leave the tree from nodeIndToNode. Only correct when the tree's previous change was also made by
+        processOptReconfig, which leaves no zero-length edge above a non-cell node and no node without nodeId.
+        """
         mostUSNode = nodeIndToNode[mostUSInfo['mostUSNodeInd']]
+        if subtree_only:
+            nNodesBefore = self.nNodes
+            oldNodes = mostUSNode.getReconfiguredNodes(mostUSInfo['childrenNotInvolved'],
+                                                       {edge[1] for edge in optEdgeList if edge[3]})
+            nOldInternal = sum(isCountedAsInternal(node) for node in oldNodes)
         mostUSNode.childNodes = [child for child in mostUSNode.childNodes if
                                  child.nodeInd in mostUSInfo['childrenNotInvolved']]
+        changedNodes = []
         if trackCloseness:
             mostUSNode.cumClosenessNNN = 2
             mostUSNode.addClosenessNNN(dist=0, src=optEdgeList[0][1])
@@ -3667,6 +3899,7 @@ class Tree:
             if not edge[3]:  # In this case, the childNode is not a leaf in the subtree and ltqs must be recomputed
                 childNode.ltqs = None
                 childNode.childNodes = []
+                changedNodes.append(childNode)
             else:
                 if trackCloseness:
                     childNode.addClosenessNNN(dist=0, src=parentNode.nodeInd)
@@ -3677,11 +3910,21 @@ class Tree:
         mostUSNode.getLtqsNoneOnly()
         # Recalculate ltqs of everything that is upstream of subtree
         mostUSNode.setLtqsUpstream()
-        # TODO: Do this only when zerotimechild is added or some edge is removed
-        recursionWrap(self.root.mergeZeroTimeChilds)
-        recursionWrap(self.root.renumberNodes)
-        # self.root.mergeZeroTimeChilds(verbose=verbose)
-        # self.root.renumberNodes()
+        if subtree_only:
+            changedNodeInds = {node.nodeInd for node in changedNodes}
+            nChangedInternal = sum(isCountedAsInternal(node) for node in changedNodes)
+            # The merged nodes can include a leaf of the edge list, which neither count above contains
+            mergedNodes = mostUSNode.mergeZeroTimeChilds(descendInto=changedNodeInds)
+            for node in changedNodes:
+                if (node.parentNode is not None) and (node.nodeId is None):
+                    node.nodeId = 'internal_' + str(node.nodeInd)
+            bs_glob.nNodes = nNodesBefore - nOldInternal + nChangedInternal - len(mergedNodes)
+            for node in [node for node in oldNodes if node.nodeInd not in changedNodeInds] + mergedNodes:
+                del nodeIndToNode[node.nodeInd]
+        else:
+            # TODO: Do this only when zerotimechild is added or some edge is removed
+            recursionWrap(self.root.mergeZeroTimeChilds)
+            recursionWrap(self.root.renumberNodes)
         self.nNodes = bs_glob.nNodes
 
     def getOptEdgeList(self, dsNode, args, finalOptTimes=False, returnEdgelist=False, singleProcess=True, random=False,
@@ -3739,13 +3982,16 @@ class Tree:
             tree.optTimes(verbose=False, singleProcess=singleProcess,
                           tol=1e-6)  # TODO: Maybe only do this when merge is done.
 
-        newLoglik = tree.calcLogLComplete()
+        # optTimes ends with the same whole-tree pass that calcLogLComplete would repeat
+        newLoglik = tree.calcLogLComplete(recalc=not finalOptTimes)
         dsNode.nnnLoglik = newLoglik - origLoglik
 
         if not returnEdgelist:
+            tree.root.clearParentNodes()
             return dsNode.nnnLoglik, topology != newTopology
         # tree.root.storeParent()  # This is already done in getTotalTopology
         edgeList = mostUSNode.getEdgesComplete([], indMap=treeIndToOrigInd)
+        tree.root.clearParentNodes()
         return dsNode.nnnLoglik, edgeList, mostUSInfo
 
     def buildTreeNNN(self, dsNode, returnMostUSInfo=False, mem_friendly=True, random=False):
@@ -4686,6 +4932,55 @@ class Tree:
                                           self.calcLogLComplete(mem_friendly=True, recalc=True)))
 
 
+class PairSequence:
+    """The pairs head + list(map(tuple, rows.tolist())), read from the (n, 2) array rows on demand instead of built
+    as a list. A merge round with upper bounds reads only the first few of the pairs ordered by upper bound."""
+
+    def __init__(self, head, rows):
+        self.head = head
+        self.rows = rows
+
+    def __len__(self):
+        return len(self.head) + len(self.rows)
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return [self[ind] for ind in range(*index.indices(len(self)))]
+        index = operator.index(index)
+        if index < 0:
+            index += len(self)
+        if not (0 <= index < len(self)):
+            raise IndexError('list index out of range')
+        if index < len(self.head):
+            return self.head[index]
+        return tuple(self.rows[index - len(self.head)].tolist())
+
+    def __iter__(self):
+        yield from self.head
+        yield from map(tuple, self.rows.tolist())
+
+    def asArray(self):
+        """np.array(list(self)), without building the list."""
+        if len(self.rows) == 0:
+            return np.array(self.head)
+        if len(self.head) == 0:
+            return self.rows.copy()
+        return np.concatenate((np.array(self.head), self.rows))
+
+
+def ubPairSequence(ubPairs):
+    """The pairs in UBInfo['pairs'] as a sequence of tuples, as list(map(tuple, ubPairs)) gives them."""
+    if (type(ubPairs) is np.ndarray) and (ubPairs.ndim == 2) and (ubPairs.shape[1] == 2) and \
+            (ubPairs.dtype in (np.int64, np.float64)):
+        return PairSequence([], ubPairs)
+    return list(map(tuple, ubPairs))
+
+
+def isCountedAsInternal(node):
+    """Whether renumberNodes counts this non-root node in bs_glob.nNodes on top of the cells."""
+    return not (node.isCell if (node.isCell is not None) else node.isLeaf)
+
+
 def getNewUBInfo(xrAsIfRoot_g, WAsIfRoot_g, epsx, epsW, alldLogLsUB, UBInfo, allPairsUB, oldRoot, del_node_inds,
                  nChild=None, kNN=None, pairsDoneInfo=None, ellipsoidSize=None, verbose=False, newUBObtained=None,
                  mpiInfo=None):
@@ -4737,6 +5032,140 @@ def getNewUBInfo(xrAsIfRoot_g, WAsIfRoot_g, epsx, epsW, alldLogLsUB, UBInfo, all
                              "Ellipsoid size for UB-estimation will be increased. "
                              "Ellipsoid size now %.2f" % ellipsoidSize)
     return UBInfo, getNewUB, ellipsoidSize
+
+
+class MergePairPool:
+    """
+    Computes the candidate pairs of a merge round that process 0 runs alone, in batches spread over the processes
+    that wait in mergeChildrenUB. fetch() gives for a pair what calcSingleDLogL and estimateDerBasedDLogLUB give in
+    the serial loop, which keeps every decision (the stop at an upper bound, the maxima, the upper-bound bookkeeping)
+    in task order. A batch holds the pairs the loop will certainly compute; when upper bounds are used, it ends with
+    as many pairs ordered by upper bound as make it a multiple of the number of processes.
+    """
+
+    def __init__(self, parent, roundData, myTasks, pairs, nNewPairs, nodeIndToChildInd, useUB, useUBNow, mpiInfo):
+        self.parent = parent
+        self.roundData = roundData
+        self.myTasks = myTasks
+        self.pairs = pairs
+        self.nNewPairs = nNewPairs
+        self.nodeIndToChildInd = nodeIndToChildInd
+        self.useUB = useUB
+        self.useUBNow = useUBNow
+        self.size = mpiInfo.size
+        self.results = {}
+        self.started = False
+
+    def fetch(self, indTask):
+        """dLogL, optimal times and (ddLogLPerEpsx, ddLogLPerEpsW) or None for the pair of task myTasks[indTask]."""
+        if indTask not in self.results:
+            self.computeBatch(*self.getBatch(indTask))
+        return self.results.pop(indTask)
+
+    def getBatch(self, indTask):
+        indTasks = []
+        items = []
+        batchSize = None
+        for ind in range(indTask, len(self.myTasks)):
+            task = self.myTasks[ind]
+            nodeInd1, nodeInd2 = self.pairs[task]
+            ind1 = self.nodeIndToChildInd.get(nodeInd1)
+            ind2 = self.nodeIndToChildInd.get(nodeInd2)
+            if (ind1 is None) or (ind2 is None) or (ind1 == ind2):
+                continue  # initializeTask skips these pairs
+            if self.useUBNow and (task >= self.nNewPairs):
+                if batchSize is None:
+                    batchSize = max(self.size, ((len(items) + self.size - 1) // self.size) * self.size)
+                if len(items) == batchSize:
+                    break
+            indTasks.append(ind)
+            items.append((ind1, ind2, self.useUB and (task < self.nNewPairs)))
+        return indTasks, items
+
+    def getChildInputs(self, items):
+        """The inputs of the children in items, read as the serial loop reads them but without changing the nodes."""
+        childInputs = {}
+        for ind1, ind2, _ in items:
+            for ind in (ind1, ind2):
+                if ind not in childInputs:
+                    child = self.parent.childNodes[ind]
+                    childInputs[ind] = (child.tParent, child.ltqs, child.getLtqsVarsUncached())
+        return childInputs
+
+    def computeBatch(self, indTasks, items):
+        if len(items) == 1:
+            results = evalMergePairs(self.roundData, items, self.getChildInputs(items))
+        else:
+            if not self.started:
+                mpi_wrapper.bcast('pairs', root=0)
+            # Process 0 takes the smallest share, since it also scatters and gathers
+            shares = [items[self.size - 1 - rank::self.size] for rank in range(self.size)]
+            roundData = None if self.started else self.roundData
+            mpi_wrapper.scatter([None] + [(roundData, share, self.getChildInputs(share)) for share in shares[1:]],
+                                root=0)
+            self.started = True
+            results = [None] * len(items)
+            ownResults = evalMergePairs(self.roundData, shares[0], self.getChildInputs(shares[0]))
+            for rank, rankResults in enumerate(mpi_wrapper.gather(ownResults, root=0)):
+                results[self.size - 1 - rank::self.size] = rankResults
+        self.results.update(zip(indTasks, results))
+
+    def close(self):
+        """Sends the waiting processes back to waiting for the next round, if this round used them."""
+        if self.started:
+            mpi_wrapper.scatter([None] * self.size, root=0)
+
+
+def evalMergePairs(roundData, items, childInputs):
+    """
+    Computes calcSingleDLogL, and where asked estimateDerBasedDLogLUB, for the pairs of children in items, from the
+    same inputs and with the same expressions as the serial loop of mergeChildrenUB.
+    :param roundData: (xrAsIfRoot_g, WAsIfRoot_g, nChild, sequential) of the merge round.
+    :param items: Tuples (index of child 1, index of child 2, whether to estimate the upper bound).
+    :param childInputs: Dictionary from child index to (tParent, ltqs, ltqsVars).
+    """
+    xrAsIfRoot_g, WAsIfRoot_g, nChild, sequential = roundData
+    results = []
+    oldInd1 = None
+    for ind1, ind2, estimateUB in items:
+        if ind1 != oldInd1:
+            tOld1, ltqs1, ltqsVars1 = childInputs[ind1]
+            wbar1_g = 1 / (tOld1 + ltqsVars1)
+            rootMinusFirst_W_g = WAsIfRoot_g - wbar1_g
+            rootMinusFirst_ltqs = xrAsIfRoot_g * WAsIfRoot_g - wbar1_g * ltqs1
+            oldInd1 = ind1
+        tOld2, ltqs2, ltqsVars2 = childInputs[ind2]
+        wbar2_g = 1 / (tOld2 + ltqsVars2)
+        dLogLPair, optTimes, ltqs_gi, ltqsVars_gi, wir_gi = calcSingleDLogL(xrAsIfRoot_g, WAsIfRoot_g, ltqs1,
+                                                                            ltqsVars1, wbar1_g, tOld1,
+                                                                            rootMinusFirst_W_g, rootMinusFirst_ltqs,
+                                                                            ltqs2, ltqsVars2, wbar2_g, tOld2,
+                                                                            sequential=sequential, tol=1e-4,
+                                                                            returnAll=True)
+        ubTerms = None
+        if estimateUB:
+            rootInfo = {"pos": xrAsIfRoot_g, "prec": WAsIfRoot_g, "nChild": nChild}
+            _, ddLogLPerEpsx, ddLogLPerEpsW = estimateDerBasedDLogLUB(rootInfo, optTimes, ltqs_gi=ltqs_gi,
+                                                                      ltqsVars_gi=ltqsVars_gi, wir_gi=wir_gi)
+            ubTerms = (ddLogLPerEpsx, ddLogLPerEpsW)
+        results.append((dLogLPair, optTimes, ubTerms))
+    return results
+
+
+def mergePairsWorker():
+    """
+    Run by the processes waiting in mergeChildrenUB after a 'pairs' command: computes the batches of pairs that
+    MergePairPool scatters, until it scatters None.
+    """
+    roundData = None
+    while True:
+        batch = mpi_wrapper.scatter(None, root=0)
+        if batch is None:
+            return
+        batchRoundData, items, childInputs = batch
+        if batchRoundData is not None:
+            roundData = batchRoundData
+        mpi_wrapper.gather(evalMergePairs(roundData, items, childInputs), root=0)
 
 
 def communicateMaxs(maxdLogL, maxdLogLZeroRoot, foundMax, task, nNewPairs, UBInfo, mpiInfo):
@@ -4820,8 +5249,12 @@ def derLogLikStar(t, ltqsVars_g, sqDists_g, W_g):
 
 # Used
 def optimiseT3LeafStar(ltqs_gi, ltqsVars_gi, t0_i, verbose=False):
-    optRes = minimize(getLogLikAndGradStarTreeWrapper, np.log(np.maximum(t0_i, 1e-4)), args=(ltqsVars_gi, ltqs_gi),
-                      bounds=((-16.1180, 10), (-16.1180, 10), (-16.1180, 10)), jac=True, tol=None)
+    logt0_i = np.log(np.maximum(t0_i, 1e-4))
+    args = (ltqsVars_gi, ltqs_gi)
+    bounds = ((-16.1180, 10), (-16.1180, 10), (-16.1180, 10))
+    optRes = minimizeLBFGSB(getLogLikAndGradStarTreeWrapper, logt0_i, args, bounds, None)
+    if optRes is None:
+        optRes = minimize(getLogLikAndGradStarTreeWrapper, logt0_i, args=args, bounds=bounds, jac=True, tol=None)
 
     # TODO: Decide if using Hessian, seems to not do much and may be problematic at t=0
     # negHess = getHessStarTreeJax_jit(optRes.x, ltqsVars_gi, ltqs_gi)
@@ -4860,9 +5293,12 @@ def optimiseT3LeafStarSequential(ltqs_gi, ltqsVars_gi, t0_i, tol=None, verbose=F
         return None, None, None, False
     # Fix t12 = t1a + t2a and optimise t1a < t12 and tar.
     # We will optimize t1a on a linear scale, and tar on log-scale
-    optRes = minimize(getLogLikAndGradStarTreeSequentialWrapper, [0.5 * t12Opt, np.log(max(t0_i[1], 1e-4))],
-                      args=(t12Opt, ltqsVars_gi, ltqs_gi), bounds=((0, t12Opt), (-16.1180, 10)),
-                      jac=True, tol=tol)
+    x0 = [0.5 * t12Opt, np.log(max(t0_i[1], 1e-4))]
+    args = (t12Opt, ltqsVars_gi, ltqs_gi) + _starTreeScratch(ltqs_gi)
+    bounds = ((0, t12Opt), (-16.1180, 10))
+    optRes = minimizeLBFGSB(getLogLikAndGradStarTreeSequentialWrapper, x0, args, bounds, tol)
+    if optRes is None:
+        optRes = minimize(getLogLikAndGradStarTreeSequentialWrapper, x0, args=args, bounds=bounds, jac=True, tol=tol)
     optRes.x[1] = np.exp(optRes.x[1])
     return -optRes.fun, optRes.x, t12Opt, optRes.success
 
@@ -4889,8 +5325,74 @@ def getLoglik2LeafTree(ltqs1_g, ltqsVars1_g, ltqs2_g, ltqsVars2_g, t):
     return loglik
 
 
+def _underflowIgnored():
+    return np.geterr()['under'] == 'ignore'
+
+
+def _accepted(status):
+    """Whether a kernel's results stand: it finished, and any tiny value it saw is one numpy ignores."""
+    return status == bs_kernels.DONE or (status == (bs_kernels.DONE | bs_kernels.TINY) and _underflowIgnored())
+
+
+def _isPlainArray(array):
+    # numpy gives other ndarray subclasses' types to its results; the kernels' results are plain ndarrays
+    return type(array) is np.ndarray or type(array) is np.memmap
+
+
+def _kernelVectors(*vectors):
+    """C-contiguous views or copies of vectors for kernels' read-only C signatures, or None for anything but ndarrays
+    and memmaps."""
+    for vector in vectors:
+        if not _isPlainArray(vector):
+            return None
+    return [np.ascontiguousarray(vector) for vector in vectors]
+
+
+def _compiledOptTime2LeafTree(ltqs1_g, ltqsVars1_g, ltqs2_g, ltqsVars2_g, tol, withLoglikTerms=False):
+    """getOptTime2LeafTree's result, and the kernel's two vectors (with withLoglikTerms, getLoglik2LeafTree's terms at
+    the time TreeNode.get_dlogl_spr_move uses), or None where the numpy code has to run."""
+    if not (isinstance(tol, float) and _isPlainArray(ltqs1_g) and ltqs1_g.ndim == 1):
+        return None
+    totalVars_g = np.empty(ltqs1_g.shape[0])
+    quotients_g = np.empty(ltqs1_g.shape[0])
+    try:
+        status, optTime = bs_kernels.optTime2LeafTree(ltqs1_g, ltqsVars1_g, ltqs2_g, ltqsVars2_g, tol,
+                                                      withLoglikTerms, totalVars_g, quotients_g)
+    except TypeError:
+        return None
+    if status & bs_kernels.TINY and not _underflowIgnored():
+        return None
+    status &= ~bs_kernels.TINY
+    if status == bs_kernels.AT_ZERO:
+        return 0, True, totalVars_g, quotients_g
+    if status == bs_kernels.GAVE_UP:
+        return None, False, totalVars_g, quotients_g
+    if status == bs_kernels.DONE:
+        return optTime, True, totalVars_g, quotients_g
+    return None
+
+
+def _compiledSPRMove(ltqs1_g, ltqsVars1_g, ltqs2_g, ltqsVars2_g):
+    """(opt_t, converged, dlogl) as TreeNode.get_dlogl_spr_move computes them before handling a search that gave up,
+    or None where the numpy code has to run."""
+    if not (_isPlainArray(ltqsVars1_g) and _isPlainArray(ltqs2_g) and _isPlainArray(ltqsVars2_g)):
+        return None
+    search = _compiledOptTime2LeafTree(ltqs1_g, ltqsVars1_g, ltqs2_g, ltqsVars2_g, tol=1e-4, withLoglikTerms=True)
+    if search is None:
+        return None
+    opt_t, converged, totalVars_g, quotients_g = search
+    np.log(totalVars_g, out=totalVars_g)
+    loglik = bs_kernels.loglik2LeafTree(totalVars_g, quotients_g)
+    if not math.isfinite(loglik):
+        return None
+    return opt_t, converged, np.float64(loglik)
+
+
 # Used
 def getOptTime2LeafTree(ltqs1_g, ltqsVars1_g, ltqs2_g, ltqsVars2_g, tol=1e-7):
+    search = _compiledOptTime2LeafTree(ltqs1_g, ltqsVars1_g, ltqs2_g, ltqsVars2_g, tol)
+    if search is not None:
+        return search[:2]
     summedLtqsVars_g = ltqsVars1_g + ltqsVars2_g
     sqDists_g = (ltqs1_g - ltqs2_g) ** 2
     lb_bracket = 0
@@ -4922,8 +5424,22 @@ def getOptTime2LeafTree(ltqs1_g, ltqsVars1_g, ltqs2_g, ltqsVars2_g, tol=1e-7):
     return opt_sol.root, opt_sol.converged
 
 
+def _compiledDer2LeafTree(t12, summedLtqsVars_g, sqDists_g):
+    # The kernel compiles for whatever types it is given, so these checks are its signature
+    if not (isinstance(t12, float) and _isPlainArray(summedLtqsVars_g) and _isPlainArray(sqDists_g)
+            and summedLtqsVars_g.dtype == np.float64 and sqDists_g.dtype == np.float64
+            and summedLtqsVars_g.ndim == 1 and sqDists_g.ndim == 1):
+        return None
+    status, der = bs_kernels.der2LeafTree(float(t12), np.ascontiguousarray(summedLtqsVars_g),
+                                          np.ascontiguousarray(sqDists_g))
+    return np.float64(der) if _accepted(status) else None
+
+
 # Used
 def der2LeafTree(t12, summedLtqsVars_g, sqDists_g):
+    der = _compiledDer2LeafTree(t12, summedLtqsVars_g, sqDists_g)
+    if der is not None:
+        return der
     totVar_g = t12 + summedLtqsVars_g
     der = np.sum((-1 + sqDists_g / totVar_g) / totVar_g)
     return der
@@ -4979,12 +5495,17 @@ def logLGradStarTreeLogLambdaSingleGene(logLambda, t_i, ltqs_i, ltqsVars_i, nCel
 
 
 # Used
-def optimiseTStar(ltqs_gi, ltqsVars_gi, nChilds=None, verbose=False):
+def optimiseTStar(ltqs_gi, ltqsVars_gi, nChilds=None, verbose=False, mpiInfo=None):
+    """
+    :param mpiInfo: When given with more than one process, while the other processes wait in optimiseTStarWorker,
+    the times of the children are computed by all processes in every step of the EM-like scheme.
+    """
     if nChilds is None:
         nChilds = ltqs_gi.shape[1]
     t_i = np.ones(nChilds)
     tnew_i = np.zeros(nChilds)
     converged = False
+    nProcesses = startTStarWorkers(ltqs_gi, ltqsVars_gi, nChilds, mpiInfo)
 
     # We first try to optimize the diffusion times using an EM-like scheme. If this doesn't work we use a gradient-
     # based approach
@@ -4994,14 +5515,22 @@ def optimiseTStar(ltqs_gi, ltqsVars_gi, nChilds=None, verbose=False):
         step_counter += 1
         xr_g, W_g = findNodeLtqsGivenLeafs(ltqs_gi=ltqs_gi, ltqsVars_gi=ltqsVars_gi, t_i=t_i)
 
-        for ind in range(nChilds):
+        if nProcesses > 1:
+            mpi_wrapper.bcast((xr_g, W_g, t_i), root=0)
+        for ind in range(0, nChilds, nProcesses):
             tnew_i[ind] = findOptimalTSingleCell(ltqs_gi[:, ind], ltqsVars_gi[:, ind], xr_g, t_i[ind], W_g)
+        if nProcesses > 1:
+            for rank, tnew_rank in enumerate(mpi_wrapper.gather(None, root=0)):
+                if rank > 0:
+                    tnew_i[rank::nProcesses] = tnew_rank
         changeInT = np.max(np.abs(tnew_i - t_i))
         if verbose:
             mp_print("Max absolute change in ti was: " + str(changeInT))
         if changeInT < 1e-4:
             converged = True
         t_i = tnew_i.copy()
+    if nProcesses > 1:
+        mpi_wrapper.bcast(None, root=0)
     if not converged:
         mp_print("Iterative procedure for optimising diffusion times on star-tree diverged. "
                  "Trying gradient-based approach.")
@@ -5024,6 +5553,42 @@ def optimiseTStar(ltqs_gi, ltqsVars_gi, nChilds=None, verbose=False):
         # Real loglikelihood is:
         # (loglik * 0.5) - (bs_glob.nGenes * (bs_glob.nCells - 1)/2)* np.log(2 * math.pi)
     return t_i, loglik, W_g, xr_g
+
+
+def startTStarWorkers(ltqs_gi, ltqsVars_gi, nChilds, mpiInfo):
+    """
+    Sends the children's coordinates to the processes waiting in optimiseTStarWorker, or releases them when there
+    are fewer than two children per process.
+    :return: The number of processes that compute the children's times.
+    """
+    if (mpiInfo is None) or (mpiInfo.size == 1):
+        return 1
+    if nChilds < 2 * mpiInfo.size:
+        mpi_wrapper.bcast(None, root=0)
+        return 1
+    mpi_wrapper.bcast((ltqs_gi[:, :nChilds], ltqsVars_gi[:, :nChilds]), root=0)
+    return mpiInfo.size
+
+
+def optimiseTStarWorker(mpiInfo):
+    """
+    Run by the processes other than 0 while process 0 runs optimiseTStar with mpiInfo: computes the times of
+    children rank, rank + size, ... in every step of the EM-like scheme.
+    """
+    coords = mpi_wrapper.bcast(None, root=0)
+    if coords is None:
+        return
+    ltqs_gi, ltqsVars_gi = coords
+    myChildren = range(mpiInfo.rank, ltqs_gi.shape[1], mpiInfo.size)
+    while True:
+        step = mpi_wrapper.bcast(None, root=0)
+        if step is None:
+            return
+        xr_g, W_g, t_i = step
+        tnew_i = np.zeros(len(myChildren))
+        for ind, child in enumerate(myChildren):
+            tnew_i[ind] = findOptimalTSingleCell(ltqs_gi[:, child], ltqsVars_gi[:, child], xr_g, t_i[child], W_g)
+        mpi_wrapper.gather(tnew_i, root=0)
 
 
 # Used
@@ -5114,6 +5679,30 @@ def getLoglikAndGradStarTree(childNodes=None, ltqs_gi=None, ltqsVars_gi=None, t_
         return loglik, grad
 
 
+def _compiledDerBasedDLogLUB(xr_g, Wr_g, ltqs_gi, ltqsVars_gi, wir_gi, tOpt):
+    """estimateDerBasedDLogLUB's (ddLogLPerEpsx, ddLogLPerEpsW), or None where the numpy code has to run."""
+    if type(tOpt) is list or type(tOpt) is tuple:
+        if len(tOpt) != 3 or not all(isinstance(t, float) for t in tOpt):
+            return None
+    elif not (type(tOpt) is np.ndarray and tOpt.dtype == np.float64 and tOpt.shape == (3,)):
+        return None
+    vectors = _kernelVectors(xr_g, Wr_g)
+    if (vectors is None or vectors[0].ndim != 1 or type(ltqs_gi) is not np.ndarray
+            or type(ltqsVars_gi) is not np.ndarray or type(wir_gi) is not np.ndarray or not _underflowIgnored()):
+        return None
+    nGenes = vectors[0].shape[0]
+    dLdWrTimesWr_g = np.empty(nGenes)
+    dLdxrOverSqrtWr_g = np.empty(nGenes)
+    try:
+        status = bs_kernels.derBasedDLogLUBTerms(*vectors, ltqs_gi, ltqsVars_gi, wir_gi, tOpt[0], tOpt[1], tOpt[2],
+                                                 dLdWrTimesWr_g, dLdxrOverSqrtWr_g)
+    except TypeError:
+        return None
+    if status != bs_kernels.DONE:
+        return None
+    return np.linalg.norm(dLdxrOverSqrtWr_g, 2), np.linalg.norm(dLdWrTimesWr_g, 2)
+
+
 def estimateDerBasedDLogLUB(rootInfo, tOpt, ltqs_gi=None, ltqsVars_gi=None, wir_gi=None, child1=None,
                             child2=None, sequential=True):
     """
@@ -5161,6 +5750,9 @@ def estimateDerBasedDLogLUB(rootInfo, tOpt, ltqs_gi=None, ltqsVars_gi=None, wir_
         dLogL = newLogLik - loglik
     else:
         dLogL = None
+    upperBound = _compiledDerBasedDLogLUB(xr_g, Wr_g, ltqs_gi, ltqsVars_gi, wir_gi, tOpt)
+    if upperBound is not None:
+        return (dLogL,) + upperBound
     # Get derivative w.r.t. W(r)
     wia_gi = 1 / (ltqsVars_gi + tOpt)
     Wa_g = np.sum(wia_gi, axis=1)
@@ -5214,12 +5806,50 @@ def estimateDerBasedDLogLUB(rootInfo, tOpt, ltqs_gi=None, ltqsVars_gi=None, wir_
     return dLogL, ddLogLPerEpsx, ddLogLPerEpsW
 
 
+def _starTreeScratch(ltqs_gi):
+    """Buffers for the compiled three-leaf star-tree objective, made once per optimisation, or () where that objective
+    cannot run."""
+    if type(ltqs_gi) is not np.ndarray or ltqs_gi.ndim != 2 or not _underflowIgnored():
+        return ()
+    nGenes = ltqs_gi.shape[0]
+    return np.empty((nGenes, 4)), np.empty(nGenes)
+
+
+def _compiledStarTreeObjective(t_i, ltqsVars_gi, ltqs_gi, sequential, logBuffer_g4=None, sqDists_g=None):
+    """The result of getLogLikAndGradStarTreeSequentialWrapper (sequential) or getLogLikAndGradStarTreeWrapper, given
+    the times t_i of all three leafs, or None where the numpy code has to run. Without buffers from
+    _starTreeScratch, it makes its own and checks numpy's underflow mode itself."""
+    if not (type(ltqs_gi) is np.ndarray and type(ltqsVars_gi) is np.ndarray and type(t_i) is np.ndarray):
+        return None
+    if logBuffer_g4 is None:
+        if ltqs_gi.ndim != 2 or not _underflowIgnored():
+            return None
+        logBuffer_g4 = np.empty((ltqs_gi.shape[0], 4))
+        sqDists_g = np.empty(ltqs_gi.shape[0])
+    negGrad = np.empty(2 if sequential else 3)
+    try:
+        status = bs_kernels.starTreeTerms(ltqs_gi, ltqsVars_gi, t_i, sequential, logBuffer_g4, sqDists_g, negGrad)
+    except TypeError:
+        return None
+    if status != bs_kernels.DONE:
+        return None
+    np.log(logBuffer_g4, out=logBuffer_g4)
+    loglik = bs_kernels.starTreeLoglik(logBuffer_g4, sqDists_g)
+    if not math.isfinite(loglik):
+        return None
+    return -np.float64(loglik), negGrad
+
+
 # Used
-def getLogLikAndGradStarTreeSequentialWrapper(t_i, t12, ltqsVars_gi, ltqs_gi):
+def getLogLikAndGradStarTreeSequentialWrapper(t_i, t12, ltqsVars_gi, ltqs_gi, logBuffer_g4=None, sqDists_g=None):
     # This wrapper allows t_i to be the first argument, where t_i has only 2 entries, t_{1a} and t_{ar}. Together with
     # t_{12} = t_{1a} + t_{2a} this gives all times. The wrapper returns the negative of the loglik and grad.
-    # It is used in optimising the diffusion times for a merge when args.sequential = True
+    # It is used in optimising the diffusion times for a merge when args.sequential = True. logBuffer_g4 and sqDists_g
+    # are the compiled objective's buffers from _starTreeScratch.
     t_i = np.array([t_i[0], t12 - t_i[0], np.exp(t_i[1])])
+    objective = _compiledStarTreeObjective(t_i, ltqsVars_gi, ltqs_gi, True, logBuffer_g4, sqDists_g)
+    if objective is not None:
+        return objective
     loglik, grad = getLoglikAndGradStarTree(ltqs_gi=ltqs_gi, ltqsVars_gi=ltqsVars_gi, t_i=t_i, returnGrad=True)
     grad = np.array([grad[0] - grad[1], t_i[2] * grad[2]])
     return -loglik, -grad
@@ -5241,6 +5871,9 @@ def getLogLikAndGradStarTreeWrapper(t_i, ltqsVars_gi, ltqs_gi):
     # This wrapper allows t_i to be the first argument, and returns the negative of the loglik and grad. It is used in
     # optimising the diffusion times for a merge
     t_i = np.exp(t_i)
+    objective = _compiledStarTreeObjective(t_i, ltqsVars_gi, ltqs_gi, False)
+    if objective is not None:
+        return objective
     loglik, grad = getLoglikAndGradStarTree(ltqs_gi=ltqs_gi, ltqsVars_gi=ltqsVars_gi, t_i=t_i, returnGrad=True)
     return -loglik, - t_i * grad
 
@@ -5252,9 +5885,105 @@ def getLogLikAndGradStarTreeWrapperOld(t_i, ltqsVars_gi, ltqs_gi):
     return -loglik, -grad
 
 
+def _compiledReciprocal(W_g):
+    """1 / W_g as TreeNode.getLtqsVars computes it, or None where the numpy code has to run."""
+    if type(W_g) is not np.ndarray or W_g.ndim != 1:
+        return None
+    ltqsVars_g = np.empty(W_g.shape[0])
+    try:
+        status = bs_kernels.reciprocal(np.ascontiguousarray(W_g), ltqsVars_g)
+    except TypeError:
+        return None
+    return ltqsVars_g if _accepted(status) else None
+
+
+# nodeStep's buffers when it computes no loglik terms
+_NO_LOG_BUFFER = np.empty((0, 0))
+_NO_SQ_DISTS = np.empty(0)
+
+
+def _compiledNodeStep(childNodes, withLoglik):
+    """findNodeLtqsGivenLeafs(childNodes=childNodes)'s (xr_g, W_g) for 2 to 4 children, with withLoglik followed by
+    the loglik getLtqsComplete(mem_friendly=True) adds, or None where the numpy code has to run. A child holding only
+    its W_g gets the ltqsVars that getLtqsVars(mem_friendly=True) stores, once every kernel has accepted: which
+    conversions happen, and in which order, decides later values."""
+    nChildren = len(childNodes)
+    if not 2 <= nChildren <= bs_kernels.MAX_NODE_STEP_CHILDREN:
+        return None
+    ltqs_c = []
+    ltqsVars_c = []
+    tParent_c = []
+    conversions = []
+    for child in childNodes:
+        if not (isinstance(child.tParent, float) and _isPlainArray(child.ltqs)):
+            return None
+        ltqsVars_g = child._ltqsVars
+        if ltqsVars_g is None:
+            ltqsVars_g = _compiledReciprocal(child._W_g)
+            if ltqsVars_g is None:
+                return None
+            conversions.append((child, ltqsVars_g))
+        elif not _isPlainArray(ltqsVars_g):
+            return None
+        ltqs_c.append(np.ascontiguousarray(child.ltqs))
+        ltqsVars_c.append(np.ascontiguousarray(ltqsVars_g))
+        tParent_c.append(child.tParent)
+    # One compiled signature serves every child count: the unused entries repeat the first child
+    padding = bs_kernels.MAX_NODE_STEP_CHILDREN - nChildren
+    try:
+        xr_g = np.empty(bs_glob.nGenes)
+        W_g = np.empty(bs_glob.nGenes)
+        if withLoglik:
+            logBuffer_cg = np.empty((nChildren + 1, bs_glob.nGenes))
+            sqDists_c = np.empty(nChildren)
+        else:
+            logBuffer_cg = _NO_LOG_BUFFER
+            sqDists_c = _NO_SQ_DISTS
+        status = bs_kernels.nodeStep(tuple(ltqs_c + ltqs_c[:1] * padding),
+                                     tuple(ltqsVars_c + ltqsVars_c[:1] * padding),
+                                     tuple(tParent_c + tParent_c[:1] * padding), nChildren, withLoglik, xr_g, W_g,
+                                     logBuffer_cg, sqDists_c)
+    except TypeError:
+        return None
+    if not _accepted(status):
+        return None
+    if withLoglik:
+        np.log(logBuffer_cg, out=logBuffer_cg)
+        loglik = bs_kernels.nodeLoglik(logBuffer_cg, sqDists_c)
+        if not math.isfinite(loglik):
+            return None
+    for child, ltqsVars_g in conversions:
+        child.setLtqsVarsOrW(ltqsVars=ltqsVars_g)
+    if withLoglik:
+        return xr_g, W_g, np.float64(loglik)
+    return xr_g, W_g
+
+
+def _compiledNodeStarTree(ltqs_gi, ltqsVars_gi, t_i):
+    """findNodeLtqsGivenLeafs(ltqs_gi=..., return_wbar_gi=True)'s (xr_g, W_g) followed by the loglik
+    getLtqsComplete(mem_friendly=False) adds, or None where the numpy code has to run."""
+    nGenes, nChildren = ltqs_gi.shape
+    xr_g = np.empty(nGenes)
+    W_g = np.empty(nGenes)
+    logBuffer_gk1 = np.empty((nGenes, nChildren + 1))
+    sqDists_g = np.empty(nGenes)
+    status = bs_kernels.nodeStarTerms(ltqs_gi, ltqsVars_gi, t_i, xr_g, W_g, logBuffer_gk1, sqDists_g)
+    if not _accepted(status):
+        return None
+    np.log(logBuffer_gk1, out=logBuffer_gk1)
+    loglik = bs_kernels.starTreeLoglik(logBuffer_gk1, sqDists_g)
+    if not math.isfinite(loglik):
+        return None
+    return xr_g, W_g, np.float64(loglik)
+
+
 # Used
 def findNodeLtqsGivenLeafs(childNodes=None, ltqs_gi=None, ltqsVars_gi=None, t_i=None, return_wbar_gi=False,
                            return_wOverW_gi=False):
+    if childNodes is not None and not return_wbar_gi and not return_wOverW_gi:
+        nodeStep = _compiledNodeStep(childNodes, withLoglik=False)
+        if nodeStep is not None:
+            return nodeStep
     if childNodes is not None:
         # In this case, no coordinates (ltqs_gi etc) are needed, because are taken from children-objects
         W_g = np.zeros(bs_glob.nGenes)
@@ -5308,11 +6037,39 @@ def findNodeLtqsGivenLeafsSingleGene(ltqs_i, ltqsVars_i, t_i, return_wbar_i=Fals
             return xr, W, wbar_i, wOverW_i
 
 
+def _compiledLtqsAsIfRoot(nodeLtqs_g, nodeW_g, tConn, rootLtqs_g, rootW_g):
+    """getLtqsAsIfRoot's result, or None where the numpy code has to run."""
+    if not isinstance(tConn, float):
+        return None
+    vectors = _kernelVectors(nodeLtqs_g, nodeW_g, rootLtqs_g, rootW_g)
+    if vectors is None or vectors[0].ndim != 1:
+        return None
+    nodeLtqsC_g, nodeWC_g, rootLtqsC_g, rootWC_g = vectors
+    ltqsAIRoot_g = np.empty(nodeLtqsC_g.shape[0])
+    WAIRoot_g = np.empty(nodeLtqsC_g.shape[0])
+    try:
+        status = bs_kernels.ltqsAsIfRoot(nodeLtqsC_g, nodeWC_g, tConn, rootLtqsC_g, rootWC_g, ltqsAIRoot_g, WAIRoot_g)
+    except TypeError:
+        return None
+    if status & bs_kernels.TINY:
+        if not _underflowIgnored():
+            return None
+        status &= ~bs_kernels.TINY
+    if status == bs_kernels.DONE:
+        return ltqsAIRoot_g, WAIRoot_g
+    if status == bs_kernels.AS_NODE:
+        return nodeLtqs_g.copy(), nodeW_g.copy()
+    return None
+
+
 # Used
 def getLtqsAsIfRoot(nodeLtqs_g, nodeW_g, tConn, rootLtqs_g, rootW_g):
     # To get the ltqs and W of a node where all other node-positions have been integrated out, we can view it as
     # the root. We can shift the root-position along an edge by first subtracting from the root's position the
     # contribution of the node itself, then adding the remaining root-contribution to the position of the node
+    asIfRoot = _compiledLtqsAsIfRoot(nodeLtqs_g, nodeW_g, tConn, rootLtqs_g, rootW_g)
+    if asIfRoot is not None:
+        return asIfRoot
     # TODO: Check if this can be done more efficiently
     wbarNode_g = 1 / (tConn + 1 / nodeW_g)
     rootMinusNodeW_g = rootW_g - wbarNode_g
@@ -5357,6 +6114,46 @@ def getLtqsAfterChildUpdate(nodeLtqs_g, nodeW_g, tConn, oldChLtqs_g, oldChLtqsVa
     return newNodeLtqs_g, newNodeW_g
 
 
+def _compiledPairStarTree(rootMinusFirst_W_g, rootMinusFirst_ltqs, ltqs1, ltqsVars1, ltqs2, ltqsVars2, wbar2_g):
+    """calcSingleDLogL's (WR_g, ltqs_gi, ltqsVars_gi), or None where the numpy code has to run."""
+    vectors = _kernelVectors(rootMinusFirst_W_g, rootMinusFirst_ltqs, ltqs1, ltqsVars1, ltqs2, ltqsVars2, wbar2_g)
+    if vectors is None or vectors[0].ndim != 1:
+        return None
+    nGenes = vectors[0].shape[0]
+    WR_g = np.empty(nGenes)
+    ltqs_gi = np.empty((nGenes, 3))
+    ltqsVars_gi = np.empty((nGenes, 3))
+    try:
+        status = bs_kernels.pairStarTree(*vectors, WR_g, ltqs_gi, ltqsVars_gi)
+    except TypeError:
+        return None
+    return (WR_g, ltqs_gi, ltqsVars_gi) if _accepted(status) else None
+
+
+def _compiledPairStarTreeLoglik(xrAsIfRoot_g, WAsIfRoot_g, ltqs_gi, wbar1_g, wbar2_g, WR_g):
+    """calcSingleDLogL's closing (loglik, wbar_gi), or None where the numpy code has to run."""
+    vectors = _kernelVectors(xrAsIfRoot_g, WAsIfRoot_g, wbar1_g, wbar2_g, WR_g)
+    if vectors is None or vectors[0].ndim != 1 or type(ltqs_gi) is not np.ndarray:
+        return None
+    xr_g, W_g, wbar1_g, wbar2_g, WR_g = vectors
+    nGenes = xr_g.shape[0]
+    wbar_gi = np.empty((nGenes, 3))
+    logBuffer_g4 = np.empty((nGenes, 4))
+    sqDists_g = np.empty(nGenes)
+    try:
+        status = bs_kernels.pairStarTreeLoglikTerms(xr_g, W_g, ltqs_gi, wbar1_g, wbar2_g, WR_g, wbar_gi, logBuffer_g4,
+                                                    sqDists_g)
+    except TypeError:
+        return None
+    if not _accepted(status):
+        return None
+    np.log(logBuffer_g4, out=logBuffer_g4)
+    loglik = bs_kernels.starTreeLoglik(logBuffer_g4, sqDists_g)
+    if not math.isfinite(loglik):
+        return None
+    return np.float64(loglik), wbar_gi
+
+
 # Used
 def calcSingleDLogL(xrAsIfRoot_g, WAsIfRoot_g, ltqs1, ltqsVars1, wbar1_g, tOld1, rootMinusFirst_W_g,
                     rootMinusFirst_ltqs, ltqs2, ltqsVars2, wbar2_g, tOld2, sequential=True, onlyTimes=False,
@@ -5368,11 +6165,16 @@ def calcSingleDLogL(xrAsIfRoot_g, WAsIfRoot_g, ltqs1, ltqsVars1, wbar1_g, tOld1,
     # (ltqsR, toptR + 1/self.rootW_g)
     # where ltqsR, 1/self.rootW_g are the mean and variance of the root-position when all other leafs
     # (the leafs not in the current pair) are taken into account
-    WR_g = rootMinusFirst_W_g - wbar2_g
-    ltqsR = (rootMinusFirst_ltqs - wbar2_g * ltqs2) / WR_g
-    ltqsVarsR = 1 / WR_g
-    ltqs_gi = np.column_stack((ltqs1, ltqs2, ltqsR))
-    ltqsVars_gi = np.column_stack((ltqsVars1, ltqsVars2, ltqsVarsR))
+    pairStarTree = _compiledPairStarTree(rootMinusFirst_W_g, rootMinusFirst_ltqs, ltqs1, ltqsVars1, ltqs2, ltqsVars2,
+                                         wbar2_g)
+    if pairStarTree is not None:
+        WR_g, ltqs_gi, ltqsVars_gi = pairStarTree
+    else:
+        WR_g = rootMinusFirst_W_g - wbar2_g
+        ltqsR = (rootMinusFirst_ltqs - wbar2_g * ltqs2) / WR_g
+        ltqsVarsR = 1 / WR_g
+        ltqs_gi = np.column_stack((ltqs1, ltqs2, ltqsR))
+        ltqsVars_gi = np.column_stack((ltqsVars1, ltqsVars2, ltqsVarsR))
     # TODO: Change requested tolerance in t_i
     if sequential:
         newLogLik, optTimes, t12Opt, converged = optimiseT3LeafStarSequential(ltqs_gi, ltqsVars_gi, t0_i, verbose=False,
@@ -5396,9 +6198,13 @@ def calcSingleDLogL(xrAsIfRoot_g, WAsIfRoot_g, ltqs1, ltqsVars1, wbar1_g, tOld1,
     # Then calculate three-leaf star-tree likelihood with leafs (ltqs1, t1 + ltqsVars1) (ltqs2, t2 + ltqsVars2)
     # (ltqsR, 1/self.rootW_g)
     # wbar_gi = np.column_stack((wbar1_g, wbar2_g, 1 / ltqsVarsR))
-    wbar_gi = np.column_stack((wbar1_g, wbar2_g, WR_g))
-    loglik = getLoglikAndGradStarTree(ltqs_gi=ltqs_gi, xr_g=xrAsIfRoot_g, wbar_gi=wbar_gi, W_g=WAsIfRoot_g,
-                                      returnGrad=False)
+    closingLoglik = _compiledPairStarTreeLoglik(xrAsIfRoot_g, WAsIfRoot_g, ltqs_gi, wbar1_g, wbar2_g, WR_g)
+    if closingLoglik is not None:
+        loglik, wbar_gi = closingLoglik
+    else:
+        wbar_gi = np.column_stack((wbar1_g, wbar2_g, WR_g))
+        loglik = getLoglikAndGradStarTree(ltqs_gi=ltqs_gi, xr_g=xrAsIfRoot_g, wbar_gi=wbar_gi, W_g=WAsIfRoot_g,
+                                          returnGrad=False)
     dLogL = newLogLik - loglik
     # Real dLogL is (0.5 * dLogL)
     if returnAll:
@@ -5447,6 +6253,82 @@ def getOptTimesSingleDLogLWrapper(xrAsIfRoot_g, WAsIfRoot_g, optChild1, optChild
 #     else:
 #         dist = node2.dsInfo['level'] + node1.dsInfo['level']
 #     return dist
+
+
+class NNConnectivity:
+    """Nearest-neighbour connections between nodes: a square boolean matrix over node indices, stored as the set of
+    columns of every row and the set of rows of every column. Indices behave as in the scipy.sparse.lil_array this
+    replaces: negative ones count from the end, and out-of-range ones raise the same errors."""
+
+    def __init__(self, size):
+        self.size = size
+        self.rows = {}
+        self.cols = {}
+
+    @classmethod
+    def from_sparse(cls, mat):
+        connectivity = cls(mat.shape[0])
+        connectivity.set_entries(*mat.nonzero())
+        return connectivity
+
+    def _index(self, ind, axis, read=False):
+        ind = int(ind)
+        if not (-self.size <= ind < self.size):
+            if read:
+                raise ValueError('%s index %d out of bounds' % (axis, ind))
+            raise IndexError('%s index (%d) out of bounds' % (axis, ind))
+        return ind + self.size if ind < 0 else ind
+
+    def _set(self, row, col):
+        self.rows.setdefault(row, set()).add(col)
+        self.cols.setdefault(col, set()).add(row)
+
+    def add_symmetric(self, first, second):
+        """Sets entries (first[k], second[k]) and (second[k], first[k]) for every k. Indices are checked as building a
+        scipy.sparse.csr_array from them checks them."""
+        for axis, inds in enumerate((first, second)):
+            if inds.max() >= self.size:
+                raise ValueError('axis %d index %d exceeds matrix dimension %d' % (axis, inds.max(), self.size))
+            if inds.min() < 0:
+                raise ValueError('negative axis %d index: %d' % (axis, inds.min()))
+        for row, col in zip(first.tolist(), second.tolist()):
+            self._set(int(row), int(col))
+            self._set(int(col), int(row))
+
+    def set_entries(self, rows, cols):
+        """Sets entries (rows[k], cols[k]) one by one, as lil_array's fancy assignment does."""
+        for row, col in zip(rows, cols):
+            self._set(self._index(row, 'row'), self._index(col, 'column'))
+
+    def row_indices(self, row):
+        """The columns set in a row, sorted, with the dtype lil_array.nonzero() gives at Bonsai's sizes."""
+        return np.array(sorted(self.rows.get(self._index(row, 'row', read=True), ())), dtype=np.int32)
+
+    def clear_row(self, row):
+        row = self._index(row, 'row')
+        for col in self.rows.pop(row, ()):
+            self.cols[col].discard(row)
+
+    def clear_column(self, col):
+        col = self._index(col, 'column')
+        for row in self.cols.pop(col, ()):
+            self.rows[row].discard(col)
+
+    def add_column_to_row(self, ind):
+        """Row ind gains the entries of column ind (column ind does not gain those of row ind); then entry (ind, ind)
+        is cleared."""
+        ind = self._index(ind, 'row', read=True)
+        for row in list(self.cols.get(ind, ())):
+            self._set(ind, row)
+        self.rows.get(ind, set()).discard(ind)
+        self.cols.get(ind, set()).discard(ind)
+
+
+def getNNConnectivity(NNInfo):
+    """NNInfo's connectivity matrix, converted first if a caller stored a scipy sparse matrix there."""
+    if not isinstance(NNInfo['conn_mat'], NNConnectivity):
+        NNInfo['conn_mat'] = NNConnectivity.from_sparse(NNInfo['conn_mat'])
+    return NNInfo['conn_mat']
 
 
 def updateNNInfo(runConfigs, NNInfo, del_node_inds, newAnc):

@@ -146,6 +146,10 @@ from bonsai.bonsai_helpers import mp_print, startMPI, getOutputFolder, get_lates
     clean_up_redundant_data_files, str2bool
 import bonsai.bonsai_globals as bs_glob
 
+# The imported modules live as long as the run. Freezing them keeps the explicit gc.collect() calls in the pipeline
+# from scanning their hundreds of thousands of objects every time.
+gc.freeze()
+
 # TODO: Remove eventually, only uncomment this for making animations
 if len(store_all_nwk_folder):
     bs_glob.nwk_counter = 1
