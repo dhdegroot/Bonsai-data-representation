@@ -652,49 +652,50 @@ class TreeNode:
                                                        W_g=self.getW(mem_friendly=True), returnGrad=False,
                                                        mem_friendly=True)
 
-    def getLogLGradLambdaSingleGene(self, lam, geneInd, loglik, logGrad):
-        nChildren = len(self.childNodes)
-        ltqsNew_i = np.zeros(nChildren)
-        ltqsVarsNew_i = np.zeros(nChildren)
-        t_i = np.zeros(nChildren)
-        if self.isLeaf:
-            # TODO: Maybe make getLtqsVars take gene_ind as argument
-            return loglik, logGrad, self.ltqs[geneInd] / np.sqrt(lam), self.getLtqsVars()[geneInd] / lam, self.tParent
+    # getLogLGradLambdaSingleGene and getLogLGradLambda were only used by logLGradCompleteLambda, so they are commented out as well.
+    # def getLogLGradLambdaSingleGene(self, lam, geneInd, loglik, logGrad):
+    #     nChildren = len(self.childNodes)
+    #     ltqsNew_i = np.zeros(nChildren)
+    #     ltqsVarsNew_i = np.zeros(nChildren)
+    #     t_i = np.zeros(nChildren)
+    #     if self.isLeaf:
+    #         # TODO: Maybe make getLtqsVars take gene_ind as argument
+    #         return loglik, logGrad, self.ltqs[geneInd] / np.sqrt(lam), self.getLtqsVars()[geneInd] / lam, self.tParent
 
-        for child_ind, child in enumerate(self.childNodes):
-            loglik, logGrad, ltqsNew_i[child_ind], ltqsVarsNew_i[child_ind], t_i[
-                child_ind] = child.getLogLGradLambdaSingleGene(lam, geneInd, loglik, logGrad)
+    #     for child_ind, child in enumerate(self.childNodes):
+    #         loglik, logGrad, ltqsNew_i[child_ind], ltqsVarsNew_i[child_ind], t_i[
+    #             child_ind] = child.getLogLGradLambdaSingleGene(lam, geneInd, loglik, logGrad)
 
-        xr, W, wbar_i, wOverW_i = findNodeLtqsGivenLeafsSingleGene(ltqsNew_i, ltqsVarsNew_i, t_i,
-                                                                   return_wbar_i=True,
-                                                                   return_wOverW_i=True)
-        sqDistsTimesWbar_i = wbar_i * (ltqsNew_i - xr) ** 2
+    #     xr, W, wbar_i, wOverW_i = findNodeLtqsGivenLeafsSingleGene(ltqsNew_i, ltqsVarsNew_i, t_i,
+    #                                                                return_wbar_i=True,
+    #                                                                return_wOverW_i=True)
+    #     sqDistsTimesWbar_i = wbar_i * (ltqsNew_i - xr) ** 2
 
-        loglik += - np.log(W) + np.sum(np.log(wbar_i) - sqDistsTimesWbar_i)
-        logGrad += - np.sum(wbar_i * (ltqsVarsNew_i * (wOverW_i - 1) - t_i * sqDistsTimesWbar_i))
-        return loglik, logGrad, xr, 1 / W, self.tParent
+    #     loglik += - np.log(W) + np.sum(np.log(wbar_i) - sqDistsTimesWbar_i)
+    #     logGrad += - np.sum(wbar_i * (ltqsVarsNew_i * (wOverW_i - 1) - t_i * sqDistsTimesWbar_i))
+    #     return loglik, logGrad, xr, 1 / W, self.tParent
 
-    def getLogLGradLambda(self, lam, loglik, logGrad, nGenes):
-        if self.isLeaf:
-            # TODO: Maybe make getLtqsVars take gene_ind as argument
-            return loglik, logGrad, self.ltqs / np.sqrt(lam), self.getLtqsVars() / lam, self.tParent
+    # def getLogLGradLambda(self, lam, loglik, logGrad, nGenes):
+    #     if self.isLeaf:
+    #         # TODO: Maybe make getLtqsVars take gene_ind as argument
+    #         return loglik, logGrad, self.ltqs / np.sqrt(lam), self.getLtqsVars() / lam, self.tParent
 
-        nChildren = len(self.childNodes)
-        ltqsNew_gi = np.zeros((nGenes, nChildren))
-        ltqsVarsNew_gi = np.zeros((nGenes, nChildren))
-        t_i = np.zeros(nChildren)
-        for child_ind, child in enumerate(self.childNodes):
-            loglik, logGrad, ltqsNew_gi[:, child_ind], ltqsVarsNew_gi[:, child_ind], t_i[
-                child_ind] = child.getLogLGradLambda(lam, loglik, logGrad, nGenes)
+    #     nChildren = len(self.childNodes)
+    #     ltqsNew_gi = np.zeros((nGenes, nChildren))
+    #     ltqsVarsNew_gi = np.zeros((nGenes, nChildren))
+    #     t_i = np.zeros(nChildren)
+    #     for child_ind, child in enumerate(self.childNodes):
+    #         loglik, logGrad, ltqsNew_gi[:, child_ind], ltqsVarsNew_gi[:, child_ind], t_i[
+    #             child_ind] = child.getLogLGradLambda(lam, loglik, logGrad, nGenes)
 
-        xr_g, W_g, wbar_gi, wOverW_gi = findNodeLtqsGivenLeafs(ltqs_gi=ltqsNew_gi, ltqsVars_gi=ltqsVarsNew_gi, t_i=t_i,
-                                                               return_wbar_gi=True,
-                                                               return_wOverW_gi=True)
-        sqDistsTimesWbar_gi = wbar_gi * (ltqsNew_gi - xr_g[:, None]) ** 2
+    #     xr_g, W_g, wbar_gi, wOverW_gi = findNodeLtqsGivenLeafs(ltqs_gi=ltqsNew_gi, ltqsVars_gi=ltqsVarsNew_gi, t_i=t_i,
+    #                                                            return_wbar_gi=True,
+    #                                                            return_wOverW_gi=True)
+    #     sqDistsTimesWbar_gi = wbar_gi * (ltqsNew_gi - xr_g[:, None]) ** 2
 
-        loglik += np.sum(- np.log(W_g) + np.sum(np.log(wbar_gi) - sqDistsTimesWbar_gi, axis=1))
-        logGrad += - np.sum(wbar_gi * (ltqsVarsNew_gi * (wOverW_gi - 1) - t_i * sqDistsTimesWbar_gi), axis=1)
-        return loglik, logGrad, xr_g, 1 / W_g, self.tParent
+    #     loglik += np.sum(- np.log(W_g) + np.sum(np.log(wbar_gi) - sqDistsTimesWbar_gi, axis=1))
+    #     logGrad += - np.sum(wbar_gi * (ltqsVarsNew_gi * (wOverW_gi - 1) - t_i * sqDistsTimesWbar_gi), axis=1)
+    #     return loglik, logGrad, xr_g, 1 / W_g, self.tParent
 
     # Used
     def getLtqsNoneOnly(self):
@@ -3391,24 +3392,25 @@ class Tree:
         self.loglik = loglik
         return loglik
 
-    # Used
-    def logLGradCompleteLambda(self, logLambda, geneInd, nCells):
-        if geneInd < 0:
-            nGenes = len(logLambda)
-            loglik = -nCells * np.sum(logLambda)
-            logGrad = -nCells * np.ones(nGenes)
-            lam = np.exp(logLambda)
-            loglik, logGrad, _, _, _ = self.root.getLogLGradLambda(lam, loglik, logGrad, nGenes)
-        else:
-            logLambda = logLambda[0]
-            loglik = - nCells * logLambda
-            logGrad = -nCells
-            lam = np.exp(logLambda)
+    # logLGradCompleteLambda was only used by optGeneVars, so it is commented out as well.
+    # It returns a wrong gradient on trees with internal nodes (see issue #98).
+    # def logLGradCompleteLambda(self, logLambda, geneInd, nCells):
+    #     if geneInd < 0:
+    #         nGenes = len(logLambda)
+    #         loglik = -nCells * np.sum(logLambda)
+    #         logGrad = -nCells * np.ones(nGenes)
+    #         lam = np.exp(logLambda)
+    #         loglik, logGrad, _, _, _ = self.root.getLogLGradLambda(lam, loglik, logGrad, nGenes)
+    #     else:
+    #         logLambda = logLambda[0]
+    #         loglik = - nCells * logLambda
+    #         logGrad = -nCells
+    #         lam = np.exp(logLambda)
 
-            loglik, logGrad, _, _, _ = self.root.getLogLGradLambdaSingleGene(lam, geneInd, loglik, logGrad)
+    #         loglik, logGrad, _, _, _ = self.root.getLogLGradLambdaSingleGene(lam, geneInd, loglik, logGrad)
 
-        # print("Loglik: " + str(loglik))
-        return - loglik, - logGrad
+    #     # print("Loglik: " + str(loglik))
+    #     return - loglik, - logGrad
 
     # Used
     def getLikelihoodGradGivenTimes(self, t, nodeInds, verbose=False, mem_friendly=False):
@@ -3585,60 +3587,61 @@ class Tree:
         self.root.getLtqsComplete(mem_friendly=True)
         return optTimes
 
-    # Used
-    def optGeneVars(self, geneVars, genesSimultaneously=False, verbose=False, singleProcess=False):
-        """
+    # optGeneVars is not used anywhere, so it is commented out to prevent bugs (see issue #98).
+    # Its gradient (logLGradCompleteLambda) is only correct for star trees.
+    # def optGeneVars(self, geneVars, genesSimultaneously=False, verbose=False, singleProcess=False):
+    #     """
 
-        :param genesSimultaneously: boolean. Doing genes simultaneous is faster in this implementation, but can be a bit
-        less accurate.
-        :param verbose:
-        :param singleProcess: This boolean variable determines whether many processes work together to calculate such
-        that mergeChildrenUB can again be parallelized, or whether different processes are doing different instances
-        of this function.
-        :return:
-        """
-        if mpi_wrapper.is_first_process() or singleProcess:
-            nGenes = bs_glob.nGenes
-            logLambda0 = np.zeros(nGenes)
+    #     :param genesSimultaneously: boolean. Doing genes simultaneous is faster in this implementation, but can be a bit
+    #     less accurate.
+    #     :param verbose:
+    #     :param singleProcess: This boolean variable determines whether many processes work together to calculate such
+    #     that mergeChildrenUB can again be parallelized, or whether different processes are doing different instances
+    #     of this function.
+    #     :return:
+    #     """
+    #     if mpi_wrapper.is_first_process() or singleProcess:
+    #         nGenes = bs_glob.nGenes
+    #         logLambda0 = np.zeros(nGenes)
 
-            bounds = np.array([[-13.815510557964274, 13.815510557964274]] * nGenes) - np.log(
-                geneVars[:, None])  # np.log(1e-6) = -13.815510557964274
-            # Try all genes at the same time
-            if genesSimultaneously:
-                start = time.time()
-                optRes2 = minimize(self.logLGradCompleteLambda, x0=logLambda0, bounds=bounds,
-                                   jac=True, args=(-1, bs_glob.nCells))
-                optLambdas = np.exp(optRes2.x)
-                mp_print("Variance optimization (genes simultaneous) took: %.5f seconds." % (time.time() - start))
-            else:
-                start = time.time()
-                optLambdas = np.ones(nGenes)
-                for gene_ind in range(nGenes):
-                    bounds = np.array([[-13.815510557964274, 13.815510557964274]]) - np.log(
-                        geneVars[gene_ind])  # np.log(1e-6)
-                    optRes = minimize(self.logLGradCompleteLambda, x0=logLambda0[gene_ind], bounds=bounds,
-                                      jac=True, args=(gene_ind, bs_glob.nCells))
-                    if verbose and (gene_ind % 100 == 0):
-                        mp_print("Completed gene optimization on gene %d out of %d." % (gene_ind, nGenes),
-                                 ALL_RANKS=singleProcess)
-                    if optRes.success:
-                        optLambdas[gene_ind] = np.exp(optRes.x)
-                    else:
-                        mp_print("Optimizing variance of gene %d did not succeed. Re-setting to old value.")
-                        optLambdas[gene_ind] = 1
-                mp_print("Variance optimization (per gene) took: %.5f seconds." % (time.time() - start))
+    #         bounds = np.array([[-13.815510557964274, 13.815510557964274]] * nGenes) - np.log(
+    #             geneVars[:, None])  # np.log(1e-6) = -13.815510557964274
+    #         # Try all genes at the same time
+    #         if genesSimultaneously:
+    #             start = time.time()
+    #             optRes2 = minimize(self.logLGradCompleteLambda, x0=logLambda0, bounds=bounds,
+    #                                jac=True, args=(-1, bs_glob.nCells))
+    #             optLambdas = np.exp(optRes2.x)
+    #             mp_print("Variance optimization (genes simultaneous) took: %.5f seconds." % (time.time() - start))
+    #         else:
+    #             start = time.time()
+    #             optLambdas = np.ones(nGenes)
+    #             for gene_ind in range(nGenes):
+    #                 bounds = np.array([[-13.815510557964274, 13.815510557964274]]) - np.log(
+    #                     geneVars[gene_ind])  # np.log(1e-6)
+    #                 optRes = minimize(self.logLGradCompleteLambda, x0=logLambda0[gene_ind], bounds=bounds,
+    #                                   jac=True, args=(gene_ind, bs_glob.nCells))
+    #                 if verbose and (gene_ind % 100 == 0):
+    #                     mp_print("Completed gene optimization on gene %d out of %d." % (gene_ind, nGenes),
+    #                              ALL_RANKS=singleProcess)
+    #                 if optRes.success:
+    #                     optLambdas[gene_ind] = np.exp(optRes.x[0])
+    #                 else:
+    #                     mp_print("Optimizing variance of gene %d did not succeed. Re-setting to old value.")
+    #                     optLambdas[gene_ind] = 1
+    #             mp_print("Variance optimization (per gene) took: %.5f seconds." % (time.time() - start))
 
-            # optRes = minimize(self.getNegLoglikGivenLambdasWrapper, np.log(logLambda0), args=(verbose,),
-            #                   options={'disp': False}, jac=True, bounds=bounds)
-        else:
-            optLambdas = None
-        if not singleProcess:
-            optLambdas = mpi_wrapper.bcast(optLambdas, root=0)
+    #         # optRes = minimize(self.getNegLoglikGivenLambdasWrapper, np.log(logLambda0), args=(verbose,),
+    #         #                   options={'disp': False}, jac=True, bounds=bounds)
+    #     else:
+    #         optLambdas = None
+    #     if not singleProcess:
+    #         optLambdas = mpi_wrapper.bcast(optLambdas, root=0)
 
-        self.root.assignVs(optLambdas)
-        optGeneVars = geneVars * optLambdas
-        self.root.getLtqsComplete(mem_friendly=True)
-        return optGeneVars
+    #     self.root.assignVs(optLambdas)
+    #     optGeneVars = geneVars * optLambdas
+    #     self.root.getLtqsComplete(mem_friendly=True)
+    #     return optGeneVars
 
     def processOptReconfig(self, optEdgeList, nodeIndToNode, nodesList, candidatesList, mostUSInfo,
                            trackCloseness=True):
@@ -3939,95 +3942,97 @@ class Tree:
         # self.root.tParent = None
         self.root.reset_root_node(parent_ind=None, old_tParent=self.root.tParent)
 
-    def from_newick(self, nwk_str, node_id_to_vert_ind=None):
-        # nodes = []
-        # Here we will keep a dictionary from level down the tree, to lists of nodes that don't have an assigned parent
-        level_to_nodes = {0: []}
-        level = 0
-        curr_str = ''
-        nodeIdY_tParentF = True
-        curr_node = None
-        new_node = False
-        self.nNodes = 0
-        internal_node_ids_made_up = 0
-        for char in nwk_str:
-            if char == '(':
-                # We go down the tree one level
-                level += 1
-                level_to_nodes[level] = []
-                # It also means we start a new node
-                new_node = True
-            elif char == ')':
-                # We go back up to the parent level
-                level -= 1
-                # It also means we start a new node
-                new_node = True
-            elif char == ':':
-                # This indicates a time is coming
-                if curr_node is None:
-                    # This indicates no node-id is stored in the nwk-file for this node. Make one up
-                    curr_node = TreeNode(isLeaf=True)
-                    self.nNodes += 1
-                    curr_node.level = level
-                    level_to_nodes[level].append(curr_node)
-                    # nodeIdY_tParentF = True
-                    curr_str = 'internal_{}'.format(internal_node_ids_made_up)
-                    internal_node_ids_made_up += 1
-                    new_node = False
+    # Tree.from_newick is not used anywhere, so it is commented out to prevent bugs (see issue #98).
+    # To read a newick file, one can use Cluster_Tree.from_newick_file in downstream_analyses/get_cluster_helpers.py.
+    # def from_newick(self, nwk_str, node_id_to_vert_ind=None):
+    #     # nodes = []
+    #     # Here we will keep a dictionary from level down the tree, to lists of nodes that don't have an assigned parent
+    #     level_to_nodes = {0: []}
+    #     level = 0
+    #     curr_str = ''
+    #     nodeIdY_tParentF = True
+    #     curr_node = None
+    #     new_node = False
+    #     self.nNodes = 0
+    #     internal_node_ids_made_up = 0
+    #     for char in nwk_str:
+    #         if char == '(':
+    #             # We go down the tree one level
+    #             level += 1
+    #             level_to_nodes[level] = []
+    #             # It also means we start a new node
+    #             new_node = True
+    #         elif char == ')':
+    #             # We go back up to the parent level
+    #             level -= 1
+    #             # It also means we start a new node
+    #             new_node = True
+    #         elif char == ':':
+    #             # This indicates a time is coming
+    #             if curr_node is None:
+    #                 # This indicates no node-id is stored in the nwk-file for this node. Make one up
+    #                 curr_node = TreeNode(isLeaf=True)
+    #                 self.nNodes += 1
+    #                 curr_node.level = level
+    #                 level_to_nodes[level].append(curr_node)
+    #                 # nodeIdY_tParentF = True
+    #                 curr_str = 'internal_{}'.format(internal_node_ids_made_up)
+    #                 internal_node_ids_made_up += 1
+    #                 new_node = False
 
-                curr_node.nodeId = curr_str
-                if (node_id_to_vert_ind is not None) and (curr_node.nodeId in node_id_to_vert_ind):
-                    curr_node.vert_ind = node_id_to_vert_ind[curr_node.nodeId]
-                nodeIdY_tParentF = False
-                curr_str = ''
-            elif char == ',':
-                # This indicates the time is complete, new child coming
-                new_node = True
-            elif char == ';':
-                if curr_node is None:
-                    # This indicates no node-id is stored in the nwk-file for this node. Make one up
-                    curr_node = TreeNode(isLeaf=True)
-                    self.nNodes += 1
-                    curr_node.level = level
-                    level_to_nodes[level].append(curr_node)
-                    # nodeIdY_tParentF = True
-                    curr_str = 'internal_{}'.format(internal_node_ids_made_up)
-                    internal_node_ids_made_up += 1
-                    nodeIdY_tParentF = True
-                curr_node.isRoot = True
-                new_node = True
-            else:
-                if curr_node is None:
-                    curr_node = TreeNode(isLeaf=True)
-                    self.nNodes += 1
-                    curr_node.level = level
-                    level_to_nodes[level].append(curr_node)
-                    nodeIdY_tParentF = True
-                curr_str += char
-                new_node = False
+    #             curr_node.nodeId = curr_str
+    #             if (node_id_to_vert_ind is not None) and (curr_node.nodeId in node_id_to_vert_ind):
+    #                 curr_node.vert_ind = node_id_to_vert_ind[curr_node.nodeId]
+    #             nodeIdY_tParentF = False
+    #             curr_str = ''
+    #         elif char == ',':
+    #             # This indicates the time is complete, new child coming
+    #             new_node = True
+    #         elif char == ';':
+    #             if curr_node is None:
+    #                 # This indicates no node-id is stored in the nwk-file for this node. Make one up
+    #                 curr_node = TreeNode(isLeaf=True)
+    #                 self.nNodes += 1
+    #                 curr_node.level = level
+    #                 level_to_nodes[level].append(curr_node)
+    #                 # nodeIdY_tParentF = True
+    #                 curr_str = 'internal_{}'.format(internal_node_ids_made_up)
+    #                 internal_node_ids_made_up += 1
+    #                 nodeIdY_tParentF = True
+    #             curr_node.isRoot = True
+    #             new_node = True
+    #         else:
+    #             if curr_node is None:
+    #                 curr_node = TreeNode(isLeaf=True)
+    #                 self.nNodes += 1
+    #                 curr_node.level = level
+    #                 level_to_nodes[level].append(curr_node)
+    #                 nodeIdY_tParentF = True
+    #             curr_str += char
+    #             new_node = False
 
-            if new_node:
-                if curr_node is not None:
-                    if nodeIdY_tParentF:
-                        curr_node.nodeId = curr_str
-                        if (node_id_to_vert_ind is not None) and (curr_node.nodeId in node_id_to_vert_ind):
-                            curr_node.vert_ind = node_id_to_vert_ind[curr_node.nodeId]
-                    else:
-                        curr_node.tParent = float(curr_str)
-                    curr_str = ''
-                    # level_to_nodes[level].append(curr_node)
-                    # Get all children and add them to this node
-                    if (curr_node.level + 1) in level_to_nodes:
-                        curr_node.childNodes = level_to_nodes[curr_node.level + 1]
-                        if len(level_to_nodes[curr_node.level + 1]) > 0:
-                            curr_node.isLeaf = False
-                            level_to_nodes[curr_node.level + 1] = []
-                    else:
-                        curr_node.childNodes = []
-                curr_node = None
-        self.root = level_to_nodes[0][0]
-        self.max_node_ind = self.root.get_max_node_ind(-np.inf)
-        bs_glob.max_node_ind = self.max_node_ind
+    #         if new_node:
+    #             if curr_node is not None:
+    #                 if nodeIdY_tParentF:
+    #                     curr_node.nodeId = curr_str
+    #                     if (node_id_to_vert_ind is not None) and (curr_node.nodeId in node_id_to_vert_ind):
+    #                         curr_node.vert_ind = node_id_to_vert_ind[curr_node.nodeId]
+    #                 else:
+    #                     curr_node.tParent = float(curr_str)
+    #                 curr_str = ''
+    #                 # level_to_nodes[level].append(curr_node)
+    #                 # Get all children and add them to this node
+    #                 if (curr_node.level + 1) in level_to_nodes:
+    #                     curr_node.childNodes = level_to_nodes[curr_node.level + 1]
+    #                     if len(level_to_nodes[curr_node.level + 1]) > 0:
+    #                         curr_node.isLeaf = False
+    #                         level_to_nodes[curr_node.level + 1] = []
+    #                 else:
+    #                     curr_node.childNodes = []
+    #             curr_node = None
+    #     self.root = level_to_nodes[0][0]
+    #     self.max_node_ind = self.root.get_max_node_ind(-np.inf)
+    #     bs_glob.max_node_ind = self.max_node_ind
 
     def remove_two_child_root(self, change_node_inds=False):
         if len(self.root.childNodes) > 2:
@@ -4850,7 +4855,7 @@ def optimiseT3LeafStar(ltqs_gi, ltqsVars_gi, t0_i, verbose=False):
 
 
 # Used
-def optimiseT3LeafStarSequential(ltqs_gi, ltqsVars_gi, t0_i, tol=None, verbose=False):
+def optimiseT3LeafStarSequential(ltqs_gi, ltqsVars_gi, t0_i, tol=1e-7, verbose=False):
     # Optimise t12, total diffusion time between the two cells as if these are not connected to the root
     # if t12Opt is None:
     # t12Opt, converged = getOptTime2LeafTree(ltqs_gi, ltqsVars_gi, tol=tol)
@@ -4945,39 +4950,39 @@ def logLGradStarTreeLogT(logt_i, ltqsVars_gi, ltqs_gi):
     return -loglik, - t_i * grad
 
 
-# Used
-def logLGradStarTreeLogLambda(logLambda_g, t_i, ltqs_gi, ltqsVars_gi, nCells):
-    lambda_g = np.exp(logLambda_g)
+# logLGradStarTreeLogLambda is not used anywhere, so it is commented out to prevent bugs.
+# def logLGradStarTreeLogLambda(logLambda_g, t_i, ltqs_gi, ltqsVars_gi, nCells):
+#     lambda_g = np.exp(logLambda_g)
 
-    ltqsNew_gi = ltqs_gi / np.sqrt(lambda_g[:, None])
-    ltqsVarsNew_gi = ltqsVars_gi / lambda_g[:, None]
-    xr_g, W_g, wbar_gi, wOverW_gi = findNodeLtqsGivenLeafs(ltqs_gi=ltqsNew_gi, ltqsVars_gi=ltqsVarsNew_gi, t_i=t_i,
-                                                           return_wbar_gi=True, return_wOverW_gi=True)
-    sqDistsTimesWbar_gi = wbar_gi * (ltqsNew_gi - xr_g[:, None]) ** 2
+#     ltqsNew_gi = ltqs_gi / np.sqrt(lambda_g[:, None])
+#     ltqsVarsNew_gi = ltqsVars_gi / lambda_g[:, None]
+#     xr_g, W_g, wbar_gi, wOverW_gi = findNodeLtqsGivenLeafs(ltqs_gi=ltqsNew_gi, ltqsVars_gi=ltqsVarsNew_gi, t_i=t_i,
+#                                                            return_wbar_gi=True, return_wOverW_gi=True)
+#     sqDistsTimesWbar_gi = wbar_gi * (ltqsNew_gi - xr_g[:, None]) ** 2
 
-    loglik = np.sum(- nCells * logLambda_g - np.log(W_g) + np.sum(np.log(wbar_gi) - sqDistsTimesWbar_gi, axis=1))
-    logGrad = - nCells - np.sum(wbar_gi * (ltqsVarsNew_gi * (wOverW_gi - 1) - t_i * sqDistsTimesWbar_gi), axis=1)
+#     loglik = np.sum(- nCells * logLambda_g - np.log(W_g) + np.sum(np.log(wbar_gi) - sqDistsTimesWbar_gi, axis=1))
+#     logGrad = - nCells - np.sum(wbar_gi * (ltqsVarsNew_gi * (wOverW_gi - 1) - t_i * sqDistsTimesWbar_gi), axis=1)
 
-    # print("Loglik: " + str(loglik))
-    return - loglik, - logGrad
+#     # print("Loglik: " + str(loglik))
+#     return - loglik, - logGrad
 
 
-# Used
-def logLGradStarTreeLogLambdaSingleGene(logLambda, t_i, ltqs_i, ltqsVars_i, nCells):
-    logLambda = logLambda[0]
-    lam = np.exp(logLambda)
+# logLGradStarTreeLogLambdaSingleGene was only used by optimiseLambdaStar, so it is commented out as well.
+# def logLGradStarTreeLogLambdaSingleGene(logLambda, t_i, ltqs_i, ltqsVars_i, nCells):
+#     logLambda = logLambda[0]
+#     lam = np.exp(logLambda)
 
-    ltqsNew_i = ltqs_i / np.sqrt(lam)
-    ltqsVarsNew_i = ltqsVars_i / lam
-    xr, W, wbar_i, wOverW_i = findNodeLtqsGivenLeafsSingleGene(ltqsNew_i, ltqsVarsNew_i, t_i, return_wbar_i=True,
-                                                               return_wOverW_i=True)
-    sqDistsTimesWbar_i = wbar_i * (ltqsNew_i - xr) ** 2
+#     ltqsNew_i = ltqs_i / np.sqrt(lam)
+#     ltqsVarsNew_i = ltqsVars_i / lam
+#     xr, W, wbar_i, wOverW_i = findNodeLtqsGivenLeafsSingleGene(ltqsNew_i, ltqsVarsNew_i, t_i, return_wbar_i=True,
+#                                                                return_wOverW_i=True)
+#     sqDistsTimesWbar_i = wbar_i * (ltqsNew_i - xr) ** 2
 
-    loglik = - nCells * logLambda - np.log(W) + np.sum(np.log(wbar_i) - sqDistsTimesWbar_i)
-    logGrad = - nCells - np.sum(wbar_i * (ltqsVarsNew_i * (wOverW_i - 1) - t_i * sqDistsTimesWbar_i))
+#     loglik = - nCells * logLambda - np.log(W) + np.sum(np.log(wbar_i) - sqDistsTimesWbar_i)
+#     logGrad = - nCells - np.sum(wbar_i * (ltqsVarsNew_i * (wOverW_i - 1) - t_i * sqDistsTimesWbar_i))
 
-    # print("Loglik: " + str(loglik))
-    return - loglik, - logGrad
+#     # print("Loglik: " + str(loglik))
+#     return - loglik, - logGrad
 
 
 # Used
@@ -5028,36 +5033,36 @@ def optimiseTStar(ltqs_gi, ltqsVars_gi, nChilds=None, verbose=False):
     return t_i, loglik, W_g, xr_g
 
 
-# Used
-def optimiseLambdaStar(t_i, ltqs_gi, ltqsVars_gi, geneVars, verbose=False):
-    nGenes = bs_glob.nGenes
-    nCells = bs_glob.nCells
-    logLambda_g = np.zeros(nGenes)
+# optimiseLambdaStar is not used anywhere, so it is commented out to prevent bugs (see issue #98).
+# def optimiseLambdaStar(t_i, ltqs_gi, ltqsVars_gi, geneVars, verbose=False):
+#     nGenes = bs_glob.nGenes
+#     nCells = bs_glob.nCells
+#     logLambda_g = np.zeros(nGenes)
 
-    # bounds = ((-13.815510557964274, 13.815510557964274),) * nGenes  # np.log(1e-6) = -13.815510557964274
-    # start = time.time()
-    # optRes = minimize(logLGradStarTreeLogLambda, x0=logLambda_g, jac=True, bounds=bounds, args=(t_i, ltqs_gi, ltqsVars_gi, nCells))
-    # lambda_g = np.exp(optRes.x)
-    # mp_print("Variance optimization took: %.5f seconds." % (time.time() - start))
-    # if not optRes.success:
-    #     mp_print("Could not optimize gene variances for star-tree. "
-    #              "Maybe try including fewer noisy genes, using zscore_cutoff-argument.")
-    #     lambda_g = np.ones(nGenes)
-    #     return lambda_g, ltqs_gi, ltqsVars_gi
+#     # bounds = ((-13.815510557964274, 13.815510557964274),) * nGenes  # np.log(1e-6) = -13.815510557964274
+#     # start = time.time()
+#     # optRes = minimize(logLGradStarTreeLogLambda, x0=logLambda_g, jac=True, bounds=bounds, args=(t_i, ltqs_gi, ltqsVars_gi, nCells))
+#     # lambda_g = np.exp(optRes.x)
+#     # mp_print("Variance optimization took: %.5f seconds." % (time.time() - start))
+#     # if not optRes.success:
+#     #     mp_print("Could not optimize gene variances for star-tree. "
+#     #              "Maybe try including fewer noisy genes, using zscore_cutoff-argument.")
+#     #     lambda_g = np.ones(nGenes)
+#     #     return lambda_g, ltqs_gi, ltqsVars_gi
 
-    start = time.time()
-    lambda_g = np.zeros(nGenes)
-    for gene_ind in range(nGenes):
-        bounds = np.array([[-13.815510557964274, 13.815510557964274]]) - np.log(geneVars[gene_ind])  # np.log(1e-6)
-        optRes = minimize(logLGradStarTreeLogLambdaSingleGene, x0=logLambda_g[gene_ind], bounds=bounds, jac=True,
-                          args=(t_i, ltqs_gi[gene_ind, :], ltqsVars_gi[gene_ind, :], nCells))
-        if optRes.success:
-            lambda_g[gene_ind] = np.exp(optRes.x)
-        else:
-            mp_print("Optimizing variance of gene %d did not succeed. Re-setting to old value.")
-            lambda_g[gene_ind] = 1
-    mp_print("Variance optimization (per gene) took: %.5f seconds." % (time.time() - start))
-    return lambda_g
+#     start = time.time()
+#     lambda_g = np.zeros(nGenes)
+#     for gene_ind in range(nGenes):
+#         bounds = np.array([[-13.815510557964274, 13.815510557964274]]) - np.log(geneVars[gene_ind])  # np.log(1e-6)
+#         optRes = minimize(logLGradStarTreeLogLambdaSingleGene, x0=logLambda_g[gene_ind], bounds=bounds, jac=True,
+#                           args=(t_i, ltqs_gi[gene_ind, :], ltqsVars_gi[gene_ind, :], nCells))
+#         if optRes.success:
+#             lambda_g[gene_ind] = np.exp(optRes.x[0])
+#         else:
+#             mp_print("Optimizing variance of gene %d did not succeed. Re-setting to old value.")
+#             lambda_g[gene_ind] = 1
+#     mp_print("Variance optimization (per gene) took: %.5f seconds." % (time.time() - start))
+#     return lambda_g
 
 
 # Used
@@ -5262,7 +5267,7 @@ def findNodeLtqsGivenLeafs(childNodes=None, ltqs_gi=None, ltqsVars_gi=None, t_i=
         W_g = np.zeros(bs_glob.nGenes)
         xr_g = np.zeros(bs_glob.nGenes)
         if return_wbar_gi:
-            wbar_gi = np.zeros(bs_glob.nGenes, len(childNodes))
+            wbar_gi = np.zeros((bs_glob.nGenes, len(childNodes)))
         for cInd, child in enumerate(childNodes):
             child_ltqsVars = child.getLtqsVars(mem_friendly=True)
             if (child_ltqsVars is None) or (child.tParent is None):

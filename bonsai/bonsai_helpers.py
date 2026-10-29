@@ -286,17 +286,19 @@ def invert_coords_poincare(coords, origin=np.zeros(2), zoom=1, no_transform=Fals
 
 
 # Should go to tree vis file
-def pause_anim(t):  # This is taken from plt.pause(...), but without unnecessary
-    # stuff. Note that the time module should be previously imported.
-    # Again, this use the controversial event_loop of Matplotlib.
-    backend = plt.rcParams['backend']
-    if backend in plt._interactive_bk:
-        figManager = plt._pylab_helpers.Gcf.get_active()
-        if figManager is not None:
-            figManager.canvas.start_event_loop(t)
-            return
-    else:
-        time.sleep(t)
+# pause_anim is not used anywhere, so it is commented out to prevent bugs (see issue #98).
+# It no longer works with recent matplotlib versions.
+# def pause_anim(t):  # This is taken from plt.pause(...), but without unnecessary
+#     # stuff. Note that the time module should be previously imported.
+#     # Again, this use the controversial event_loop of Matplotlib.
+#     backend = plt.rcParams['backend']
+#     if backend in plt._interactive_bk:
+#         figManager = plt._pylab_helpers.Gcf.get_active()
+#         if figManager is not None:
+#             figManager.canvas.start_event_loop(t)
+#             return
+#     else:
+#         time.sleep(t)
 
 
 # Should go to tree vis file
@@ -439,53 +441,53 @@ def checkGrad(funGrad, coords, args, dx=1e-6, dims=None):
     return deviations, relDeviations
 
 
-# Used
-def hierarchy_to_newick(pathToMerger, clustIds, pathToOutput):
-    """
-    Function for getting a newick string from a hierarchy DataFrame.
-    Parameters
-    ----------
-    Returns
-    -------
-    newick_string : str
-        string of cluster hierarchy in Newick format
-    """
-    import pandas as pd
-    mergers_df = pd.read_csv(pathToMerger, names=['cluster_new', 'cluster_old', 'dist1', 'dist2'], delimiter=' ')
+# hierarchy_to_newick is not used anywhere, so it is commented out to prevent bugs (see issue #98).
+# def hierarchy_to_newick(pathToMerger, clustIds, pathToOutput):
+#     """
+#     Function for getting a newick string from a hierarchy DataFrame.
+#     Parameters
+#     ----------
+#     Returns
+#     -------
+#     newick_string : str
+#         string of cluster hierarchy in Newick format
+#     """
+#     import pandas as pd
+#     mergers_df = pd.read_csv(pathToMerger, names=['cluster_new', 'cluster_old', 'dist1', 'dist2'], delimiter=' ')
 
-    cluster_string_dict = {}
-    # cluster_distance = {c: min_distance for c in cluster_names}
-    for cInd, cId in enumerate(clustIds):
-        cluster_string = f'C{cId}'
-        cluster_string_dict[cInd] = cluster_string
+#     cluster_string_dict = {}
+#     # cluster_distance = {c: min_distance for c in cluster_names}
+#     for cInd, cId in enumerate(clustIds):
+#         cluster_string = f'C{cId}'
+#         cluster_string_dict[cInd] = cluster_string
 
-    c_low = min(cluster_string_dict.keys())
+#     c_low = min(cluster_string_dict.keys())
 
-    # if distance:
-    #     distances = np.cumsum(np.where((hierarchy_df.delta_LL >= 0), 1, -hierarchy_df.delta_LL + 1))
+#     # if distance:
+#     #     distances = np.cumsum(np.where((hierarchy_df.delta_LL >= 0), 1, -hierarchy_df.delta_LL + 1))
 
-    # use index i instead of step in case hierarchy_df.index is non-standard
-    i = mergers_df.shape[0] - 1
-    for step, row in mergers_df.iterrows():
-        c_old = row.cluster_old
-        c_new = row.cluster_new
-        s_old = cluster_string_dict[c_old]
-        s_new = cluster_string_dict[c_new]
+#     # use index i instead of step in case hierarchy_df.index is non-standard
+#     i = mergers_df.shape[0] - 1
+#     for step, row in mergers_df.iterrows():
+#         c_old = row.cluster_old
+#         c_new = row.cluster_new
+#         s_old = cluster_string_dict[c_old]
+#         s_new = cluster_string_dict[c_new]
 
-        # d = distances[-i - 1]
-        d_old = row[2]
-        d_new = row[3]
-        cluster_string_new = f'({s_new}:{d_new},{s_old}:{d_old})I{i}'
+#         # d = distances[-i - 1]
+#         d_old = row['dist1']
+#         d_new = row['dist2']
+#         cluster_string_new = f'({s_new}:{d_new},{s_old}:{d_old})I{i}'
 
-        cluster_string_dict[c_new] = cluster_string_new
-        del cluster_string_dict[c_old]
-        # del cluster_distance[c_old]
+#         cluster_string_dict[c_new] = cluster_string_new
+#         del cluster_string_dict[c_old]
+#         # del cluster_distance[c_old]
 
-        i -= 1
+#         i -= 1
 
-    newick_string = cluster_string_dict[c_new] + ';'
-    with open(pathToOutput, 'w') as f:
-        f.write("%s" % newick_string)
+#     newick_string = cluster_string_dict[c_new] + ';'
+#     with open(pathToOutput, 'w') as f:
+#         f.write("%s" % newick_string)
 
 
 # Should go to tree vis file
