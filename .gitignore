@@ -148,3 +148,5 @@ slurm_runs_pipeline/
 local_scripts/*
 *.prof
 /.vscode
+/paper_figure_scripts_and_notebooks/simulated_treelike/data
+/paper_figure_scripts_and_notebooks/simulated_treelike/tool_visualisations
