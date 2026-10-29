@@ -63,9 +63,9 @@ parser.add_argument('--zscore_cutoff', type=float, default=1.0,
                          'Due to the large number of genes dominated by noise, tree-reconstruction is usually better '
                          'when we discard the most noisy genes, even though we account for error-bars rigorously. '
                          'zscore is defined as: '
-                         'z_g = frac{1}{C} sum_c frac{(delta_{gc} - bar{delta_g})^2}{epsilon_{gc}^2} '
-                         'where delta_{gc} is the feature value for gene g and cell c, '
-                         'epsilon_{gc} is the standard-deviation')
+                         'z_g = sqrt( frac{1}{C} sum_c frac{delta_{gc}^2}{epsilon_{gc}^2} ), '
+                         'where delta_{gc} is the posterior mean of the deviation of gene g in cell c from the mean '
+                         'of gene g, and epsilon_{gc} is the standard-deviation of this posterior.')
 
 parser.add_argument("--rescale_by_var", type=str2bool, default=True,
                     help="This determines whether oordinates are rescaled by the inferred variance per gene (feature). "
@@ -88,7 +88,9 @@ parser.add_argument("--nnn_n_randomtrees", type=int, default=10,
                          "anyhow reserved, since then the different random trees will be created in parallel.")
 
 parser.add_argument("--UB_ellipsoid_size", type=float, default=1.0,
-                    help="This is a purely computational optimization that does not affect the final result. Decides "
+                    help="This is a heuristic that drastically speeds up the tree reconstruction. "
+                         "It only affects the reconstructed tree in rare cases, and works especially well in "
+                         "high-dimensional spaces, which is the typical use case for Bonsai. Decides "
                          "whether we calculate an upper bound (UB) for the increase in loglikelihood that merging a "
                          "certain pair can yield, given that a the root stays in a certain ellipsoid. Using these "
                          "upper bounds, the calculation can be sped up enormously. If the UB_ellipsoid_size < 0, "
@@ -158,7 +160,7 @@ for dep_arg in deprecated_args:
 template_yaml_path = os.path.join('bonsai', 'config_template_do_not_change', 'config_template.yaml')
 if not os.path.exists(template_yaml_path):
     print("Can't find template for YAML-file, should be at: {}".format(template_yaml_path))
-    exit()
+    exit(1)
 
 yaml = YAML()
 with open(template_yaml_path, 'r') as file_obj:

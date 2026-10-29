@@ -240,6 +240,9 @@ if args.step in ['core_calc', 'all']:
     if args.skip_greedy_merging:
         mp_print("Skipping greedy merging, since --pickup_intermediate is True, and "
                  "the results of this step are already present in {}".format(results_folder))
+        # The star tree from the preprocessing is only needed for greedy merging.
+        # The next steps will load their input from the latest intermediate results.
+        scData = None
     else:
         # Determine where to load the results
         outputFolder = getOutputFolder(zscore_cutoff=args.zscore_cutoff, greedy=False,
@@ -673,6 +676,10 @@ if args.step in ['metadata', 'all']:
     if mpiRank == 0:
         finalFolder = getOutputFolder(zscore_cutoff=args.zscore_cutoff, tmp_file=os.path.basename(args.tmp_folder),
                                       final=True)
+        # When the tree is loaded in this step, its loglikelihood has not been calculated yet
+        if scData.metadata.loglik is None:
+            scData.metadata.loglik = scData.tree.calcLogLComplete(mem_friendly=True,
+                                                                  loglikVarCorr=scData.metadata.loglikVarCorr)
         scData.storeTreeInFolder(scData.result_path(finalFolder), with_coords=True, verbose=args.verbose,
                                  store_posterior_ltqs=True)
         mp_print("\n\nStored final tree in " + scData.result_path(finalFolder) + ".\n\n")

@@ -53,7 +53,7 @@ class Run_Configs:
         pars_defaults = {'step': 'all',
                          'dataset': 'new_dataset',
                          'data_folder': None,
-                         'filenames_data': 'delta.txt,d_delta.txt',
+                         'filenames_data': 'features.txt,standard_deviations.txt',
                          'results_folder': None,
                          'verbose': True,
                          'input_is_sanity_output': True,
@@ -70,7 +70,7 @@ class Run_Configs:
                          'skip_nnn_reordering': False,
                          'skip_reorder_edges': False,
                          'pickup_intermediate': False,
-                         'tmp_folder': None,
+                         'tmp_folder': '',
                          'spr_strategy': 'large_tree'}
 
         if create_empty_configs:
@@ -89,7 +89,7 @@ class Run_Configs:
                   "'bonsai/config_template_do_not_change/config_template.yaml' "
                   "and insert the correct configuration there.\n"
                   "Then add the path to this YAML-file in the '--config_filepath' parameters")
-            exit()
+            exit(1)
 
         for label in pars_defaults:
             if (label in self.config_yaml) and (self.config_yaml[label] is not None):
@@ -286,17 +286,19 @@ def invert_coords_poincare(coords, origin=np.zeros(2), zoom=1, no_transform=Fals
 
 
 # Should go to tree vis file
-def pause_anim(t):  # This is taken from plt.pause(...), but without unnecessary
-    # stuff. Note that the time module should be previously imported.
-    # Again, this use the controversial event_loop of Matplotlib.
-    backend = plt.rcParams['backend']
-    if backend in plt._interactive_bk:
-        figManager = plt._pylab_helpers.Gcf.get_active()
-        if figManager is not None:
-            figManager.canvas.start_event_loop(t)
-            return
-    else:
-        time.sleep(t)
+# pause_anim is not used anywhere, so it is commented out to prevent bugs (see issue #98).
+# It no longer works with recent matplotlib versions.
+# def pause_anim(t):  # This is taken from plt.pause(...), but without unnecessary
+#     # stuff. Note that the time module should be previously imported.
+#     # Again, this use the controversial event_loop of Matplotlib.
+#     backend = plt.rcParams['backend']
+#     if backend in plt._interactive_bk:
+#         figManager = plt._pylab_helpers.Gcf.get_active()
+#         if figManager is not None:
+#             figManager.canvas.start_event_loop(t)
+#             return
+#     else:
+#         time.sleep(t)
 
 
 # Should go to tree vis file
@@ -439,53 +441,53 @@ def checkGrad(funGrad, coords, args, dx=1e-6, dims=None):
     return deviations, relDeviations
 
 
-# Used
-def hierarchy_to_newick(pathToMerger, clustIds, pathToOutput):
-    """
-    Function for getting a newick string from a hierarchy DataFrame.
-    Parameters
-    ----------
-    Returns
-    -------
-    newick_string : str
-        string of cluster hierarchy in Newick format
-    """
-    import pandas as pd
-    mergers_df = pd.read_csv(pathToMerger, names=['cluster_new', 'cluster_old', 'dist1', 'dist2'], delimiter=' ')
+# hierarchy_to_newick is not used anywhere, so it is commented out to prevent bugs (see issue #98).
+# def hierarchy_to_newick(pathToMerger, clustIds, pathToOutput):
+#     """
+#     Function for getting a newick string from a hierarchy DataFrame.
+#     Parameters
+#     ----------
+#     Returns
+#     -------
+#     newick_string : str
+#         string of cluster hierarchy in Newick format
+#     """
+#     import pandas as pd
+#     mergers_df = pd.read_csv(pathToMerger, names=['cluster_new', 'cluster_old', 'dist1', 'dist2'], delimiter=' ')
 
-    cluster_string_dict = {}
-    # cluster_distance = {c: min_distance for c in cluster_names}
-    for cInd, cId in enumerate(clustIds):
-        cluster_string = f'C{cId}'
-        cluster_string_dict[cInd] = cluster_string
+#     cluster_string_dict = {}
+#     # cluster_distance = {c: min_distance for c in cluster_names}
+#     for cInd, cId in enumerate(clustIds):
+#         cluster_string = f'C{cId}'
+#         cluster_string_dict[cInd] = cluster_string
 
-    c_low = min(cluster_string_dict.keys())
+#     c_low = min(cluster_string_dict.keys())
 
-    # if distance:
-    #     distances = np.cumsum(np.where((hierarchy_df.delta_LL >= 0), 1, -hierarchy_df.delta_LL + 1))
+#     # if distance:
+#     #     distances = np.cumsum(np.where((hierarchy_df.delta_LL >= 0), 1, -hierarchy_df.delta_LL + 1))
 
-    # use index i instead of step in case hierarchy_df.index is non-standard
-    i = mergers_df.shape[0] - 1
-    for step, row in mergers_df.iterrows():
-        c_old = row.cluster_old
-        c_new = row.cluster_new
-        s_old = cluster_string_dict[c_old]
-        s_new = cluster_string_dict[c_new]
+#     # use index i instead of step in case hierarchy_df.index is non-standard
+#     i = mergers_df.shape[0] - 1
+#     for step, row in mergers_df.iterrows():
+#         c_old = row.cluster_old
+#         c_new = row.cluster_new
+#         s_old = cluster_string_dict[c_old]
+#         s_new = cluster_string_dict[c_new]
 
-        # d = distances[-i - 1]
-        d_old = row[2]
-        d_new = row[3]
-        cluster_string_new = f'({s_new}:{d_new},{s_old}:{d_old})I{i}'
+#         # d = distances[-i - 1]
+#         d_old = row['dist1']
+#         d_new = row['dist2']
+#         cluster_string_new = f'({s_new}:{d_new},{s_old}:{d_old})I{i}'
 
-        cluster_string_dict[c_new] = cluster_string_new
-        del cluster_string_dict[c_old]
-        # del cluster_distance[c_old]
+#         cluster_string_dict[c_new] = cluster_string_new
+#         del cluster_string_dict[c_old]
+#         # del cluster_distance[c_old]
 
-        i -= 1
+#         i -= 1
 
-    newick_string = cluster_string_dict[c_new] + ';'
-    with open(pathToOutput, 'w') as f:
-        f.write("%s" % newick_string)
+#     newick_string = cluster_string_dict[c_new] + ';'
+#     with open(pathToOutput, 'w') as f:
+#         f.write("%s" % newick_string)
 
 
 # Should go to tree vis file
@@ -1279,17 +1281,17 @@ def resolve_sanity_filepaths(data_folder):
         if version is None:
             mp_print("Could not read the Sanity-version from {}.\n"
                      "Expected a line of the form '# Sanity version: 2.0.0'.".format(command_path), ERROR=True)
-            exit()
+            exit(1)
         if version < SANITY_MINIMUM_VERSION:
             mp_print("The Sanity-output in {} was made with Sanity-version {}, but Bonsai needs at least Sanity-version"
                      " {}.\nPlease update Sanity (https://github.com/jmbreda/Sanity) and rerun "
                      "it.".format(data_folder, '.'.join(map(str, version)),
                                   '.'.join(map(str, SANITY_MINIMUM_VERSION))), ERROR=True)
-            exit()
+            exit(1)
         if method is None:
             mp_print("Could not read the variance-estimation method from {}.\n"
                      "Expected a line of the form '# Method: MAP'.".format(command_path), ERROR=True)
-            exit()
+            exit(1)
         if method in SANITY_REJECTED_METHODS:
             mp_print("The Sanity-output in {} was made with the variance-estimation method '{}'.\n"
                      "Bonsai cannot use Sanity that was run with '-v_m MARG' as input, since that marginalises over "
@@ -1297,12 +1299,12 @@ def resolve_sanity_filepaths(data_folder):
                      "reconstruct.\nPlease rerun Sanity with its default method, '-v_m MAP'. Use '-v_m MLE' instead if "
                      "you want to reproduce the output of Sanity-versions older than "
                      "2.0.".format(data_folder, method), ERROR=True)
-            exit()
+            exit(1)
         if method not in SANITY_ACCEPTED_METHODS:
             mp_print("The Sanity-output in {} was made with the variance-estimation method '{}', which Bonsai does not "
                      "know.\nBonsai can use Sanity-output made with any of these methods: {}.".format(
                          data_folder, method, ', '.join(SANITY_ACCEPTED_METHODS)), ERROR=True)
-            exit()
+            exit(1)
         filenames = SANITY_FILENAMES
     else:
         filenames = SANITY_LEGACY_FILENAMES
@@ -1326,7 +1328,7 @@ def resolve_sanity_filepaths(data_folder):
                      "\nAre you sure you are running Sanity with the extended-output flag '-e 1', "
                      "and the vmax-argument '-max_v true'? When using Sanity 2.0 or newer, run it with "
                      "'-e 1 -v_m MAP' instead.", ERROR=True)
-        exit()
+        exit(1)
     return filepaths
 
 

@@ -6,7 +6,8 @@ import json
 from datetime import datetime
 
 
-def change_json_file(new_gene_ids_file, path_to_json, old_geneIDs_col=None, new_geneIDs_col=None):
+def get_new_gene_ids(new_gene_ids_file, gene_ids, old_geneIDs_col=None, new_geneIDs_col=None):
+    # Returns the list gene_ids where each old gene-ID that appears in new_gene_ids_file is replaced by its new gene-ID
     print("Read in file which contains mapping from old geneID to new geneID: {}".format(new_gene_ids_file))
     filepath = new_gene_ids_file
     ext = os.path.splitext(filepath)[1]
@@ -20,17 +21,7 @@ def change_json_file(new_gene_ids_file, path_to_json, old_geneIDs_col=None, new_
         header = 0
     gene_annot = pd.read_csv(filepath, delimiter=delim, header=header)
 
-    print("Read in json file which contains metadata: {}".format(path_to_json))
-    with open(path_to_json) as f:
-        metadata = json.load(f)
-
-    copy_filename = path_to_json[:-5] + "_{}.json".format(datetime.now().strftime('%y%m%d_%H%M%S'))
-    print("\nStored old json file at: {}".format(copy_filename))
-
-    with open(copy_filename, 'w') as f:
-        json.dump(metadata, f, indent=4)
-
-    metadata_geneIds = metadata['geneIds'].copy()
+    metadata_geneIds = list(gene_ids)
 
     # metadata_geneIds = metadata['geneIds'].copy()
     # df = pd.DataFrame({'sig_promoter': metadata['geneIds']})
@@ -73,8 +64,22 @@ def change_json_file(new_gene_ids_file, path_to_json, old_geneIDs_col=None, new_
             new_list.append(old_to_new_gene_name[old_gene_name])
         else:
             new_list.append(old_gene_name)
+    return new_list
 
-    metadata['geneIds'] = list(new_list)
+
+def change_json_file(new_gene_ids_file, path_to_json, old_geneIDs_col=None, new_geneIDs_col=None):
+    print("Read in json file which contains metadata: {}".format(path_to_json))
+    with open(path_to_json) as f:
+        metadata = json.load(f)
+
+    copy_filename = path_to_json[:-5] + "_{}.json".format(datetime.now().strftime('%y%m%d_%H%M%S'))
+    print("\nStored old json file at: {}".format(copy_filename))
+
+    with open(copy_filename, 'w') as f:
+        json.dump(metadata, f, indent=4)
+
+    metadata['geneIds'] = get_new_gene_ids(new_gene_ids_file, metadata['geneIds'], old_geneIDs_col=old_geneIDs_col,
+                                           new_geneIDs_col=new_geneIDs_col)
     # print("Check: there are {} geneIDs in the new metadata.json".format(len(metadata['geneIds'])))
 
     print("\nSaved new metadata json file in : {}".format(path_to_json))

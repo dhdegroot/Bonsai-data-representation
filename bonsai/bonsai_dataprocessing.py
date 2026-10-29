@@ -79,7 +79,7 @@ class Metadata:
             if self.nCells != len(self.cellIds):
                 mp_print("Number of cell-IDs ({}) stored in metadata, is not equal to value of nCells ({}). "
                          "Check this! Now exiting.".format(len(self.cellIds), self.nCells), ERROR=True)
-                exit()
+                exit(1)
 
     def to_dict(self):
         self_dict = self.__dict__
@@ -119,7 +119,7 @@ class Metadata:
         new_nGenes = len(genes_to_keep)
         if self.nGenes < new_nGenes:
             logger.error("Trying to take a subset of genes with more genes than original.")
-            exit()
+            exit(1)
         elif self.nGenes > new_nGenes:
             self.geneIds = [self.geneIds[ind] for ind in genes_to_keep]
             if self.geneVariances is not None:
@@ -173,12 +173,11 @@ class SCData:
             if results_folder and len(results_folder):
                 self.metadata.results_folder = os.path.abspath(results_folder)
             if mpiInfo.rank == 0:
-                Path(self.data_path()).mkdir(parents=True, exist_ok=True)
                 Path(self.result_path()).mkdir(parents=True, exist_ok=True)
             return
         if not dataset:
             mp_print("Dataset-ID should be given.")
-            exit()
+            exit(1)
 
         self.metadata = Metadata()
         if results_folder and len(results_folder):
@@ -1184,14 +1183,14 @@ class SCData:
                     self.metadata.geneIds.append(row[0])
             if (n_genes_orig is not None) and (len(self.metadata.geneIds) != n_genes_orig):
                 print("Number of gene-Ids in file geneID.txt does not match number of features in data-matrix!")
-                exit()
+                exit(1)
         elif os.path.exists(self.data_path('log_transcription_quotients.txt')):
             geneIds = pd.read_csv(self.data_path('log_transcription_quotients.txt'), header=None, usecols=[0],
                                   sep='\t')[1:].values.flatten()
             self.metadata.geneIds = [ID for ID in geneIds]
             if (n_genes_orig is not None) and (len(self.metadata.geneIds) != n_genes_orig):
                 print("Number of gene-Ids in file log_transcription_quotients.txt does not match genes in data-matrix!")
-                exit()
+                exit(1)
         else:
             mp_print("No geneID-file was found. Giving generic names.")
             if originalData.ltqs is None:
@@ -1219,7 +1218,7 @@ class SCData:
                                      "Please replace these characters, for example by underscores: '_'.\n"
                                      "Note that you should also do these "
                                      "replacements in potential annotation-files.".format(cell_id))
-                        exit()
+                        exit(1)
                         # if not warned:
                         #     logger.warning("At least one cell-ID: {} contains a character that is problematic for"
                         #                    "writing and reading Nwk-strings: ':', ',' '(', ')',';'.\n"
@@ -1236,7 +1235,7 @@ class SCData:
                              "matrix.\n "
                              "Please resolve this and start Bonsai again.".format(self.data_path('cellID.txt')),
                              ERROR=True)
-                    exit()
+                    exit(1)
         else:
             mp_print("No cellID-file was found. Giving generic names.")
             if self.metadata.nCells is None:
@@ -1701,6 +1700,8 @@ def extensive_spr_postprocessing(args, scdata, verbose=False):
     else:
         # Get as-if-root information, necessary for resolving polytomies
         scdata.tree.root.getAIRootInfo(None, None)
+    # Make sure that all processes have read the stored tree before process 0 continues and may remove it
+    mpi_wrapper.barrier()
     # Make sure, node counts are correct on all processes
     scdata.tree.root.renumberNodes(change_node_inds=False)
     scdata.tree.nNodes = bs_glob.nNodes
@@ -2717,7 +2718,7 @@ def get_cell_info_tree(scData, vertIndToNode):
         scData.csIndToVertInd = {}
         get_cs_info = True
         logger.error("I didn't think getting cs-info here would ever be necessary. Check why this happens.")
-        exit()
+        exit(1)
     else:
         get_cs_info = False
     nodeIdToVertInd = {node.nodeId: vertInd for vertInd, node in vertIndToNode.items()}
@@ -2739,7 +2740,7 @@ def get_cell_info_tree(scData, vertIndToNode):
     if len(cells_not_found):
         mp_print("{}\n\n Could not find the above cells in the tree. "
                  "Check this! Now exiting!".format(cells_not_found), ERROR=True)
-        exit()
+        exit(1)
 
     scData.nCellsPerVert = np.zeros(scData.nVerts)
     scData.vertIndToCellInds = {ind: [] for ind in range(scData.nVerts)}
@@ -2830,7 +2831,7 @@ def read_and_filter(data_folder, meansfile, stdsfile, sanityOutput, zscoreCutoff
         stdspath = os.path.join(data_folder, stdsfile) if (stdsfile is not None) else None
         if not os.path.exists(meanspath):
             mp_print("Did not find necessary input-file: {}".format(meanspath), ERROR=True)
-            exit()
+            exit(1)
 
     # First determine the number of genes on process 0
     if mpiInfo.rank == 0:
@@ -2872,12 +2873,12 @@ def read_and_filter(data_folder, meansfile, stdsfile, sanityOutput, zscoreCutoff
             if len(gene_variances) != nGenesOrig:
                 print("Number of gene variances in file {} does not match number of features in the ltq-matrix.\n"
                       "Check this.".format(gene_variancepath))
-                exit()
+                exit(1)
             gene_means = np.loadtxt(gene_meanspath)
             if len(gene_means) != nGenesOrig:
                 print("Number of gene means in file {} does not match number of features in the ltq-matrix.\n"
                       "Check this.".format(gene_meanspath))
-                exit()
+                exit(1)
 
             with open(meanspath, 'r') as fmeans:
                 with open(stdspath, 'r') as fstd:
@@ -3068,7 +3069,7 @@ def read_and_filter(data_folder, meansfile, stdsfile, sanityOutput, zscoreCutoff
             continueOrBreak = None
             continueYN = mpi_wrapper.bcast(continueOrBreak, root=0)
             if not continueYN:
-                exit()
+                exit(1)
 
     else:
         if ltqs.shape[0] == 0:

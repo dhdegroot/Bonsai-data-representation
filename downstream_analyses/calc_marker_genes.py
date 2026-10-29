@@ -61,6 +61,11 @@ if __name__ == '__main__':
     # Get cell inds
     node_ids_features = json.loads(feature_hdf.attrs['node_ids'])
     node_id_to_ind = {node_id: ind for ind, node_id in enumerate(node_ids_features)}
+    # Cells at zero distance are merged into one vertex, for features stored per vertex we use the vertex of such cells
+    cell_ind_to_vert_ind = bonvis_metadata.cell_info['cell_info_dict']['cell_ind_to_vert_ind']
+    for cell_ind, cell_id in enumerate(bonvis_metadata.cell_ids):
+        if cell_id not in node_id_to_ind:
+            node_id_to_ind[cell_id] = node_id_to_ind[bonvis_metadata.node_ids[cell_ind_to_vert_ind[cell_ind]]]
     cell_inds_group1 = [node_id_to_ind[node_id] for node_id in cell_ids_group1]
     cell_inds_group2 = [node_id_to_ind[node_id] for node_id in cell_ids_group2]
 
@@ -83,7 +88,7 @@ if __name__ == '__main__':
 
     else:
         # Note that we only get ranks for cells that have no nan-value for any gene
-        ranks_per_gene = feature_hdf['ranks_per_gene']
+        ranks_per_gene = feature_hdf['ranks_per_gene'][()]
         cells_wo_nan = np.where(np.sum(ranks_per_gene == -1, axis=0) == 0)[0]
         n_cells = len(cells_wo_nan)
         ds_cell_inds_1 = np.intersect1d(cell_inds_group1, cells_wo_nan)

@@ -73,7 +73,7 @@ n_batches = len(batch_ids)
 if SKIP_READING:
     batch_ids.append('total_counts_per_batch')
 else:
-    if args.count_file.split('.')[1] == 'mtx':
+    if args.count_file.endswith('.mtx'):
         logger.debug("Reading in raw data from .mtx-file")
         M = mmread(args.count_file)
         logger.debug("Done reading in raw data from .mtx-file")

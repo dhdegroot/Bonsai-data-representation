@@ -592,8 +592,8 @@ def get_annotation_based_clustering_random(cluster_tree, annotation_dict, cell_i
                         if not node.include_as_cand:
                             # We can skip this one because the created clusters would be too small
                             continue
-                        if node.annot_ent_change == 0:
-                            # We can skip this node because it splits up all annotated labels from a cluster.
+                        if (node.ds_n_annots == 0) or (tree.root.ds_n_annots == node.ds_n_annots):
+                            # We can skip this node because it does not separate any annotated cells.
                             continue
                         node_list_split.append(node)
                         sampling_probs_split.append(node.clade_ent_change)
@@ -651,9 +651,8 @@ def get_annotation_based_clustering_random(cluster_tree, annotation_dict, cell_i
                         if not node.include_as_cand:
                             # We can skip this one because the created clusters would be too small
                             continue
-                        if node.annot_ent_change == 0:
-                            # if (node.ds_n_annots == 0) or (tree.root.ds_n_annots == node.ds_n_annots):
-                            # This node, we can skip because it splits up all annotated labels from a cluster.
+                        if (node.ds_n_annots == 0) or (tree.root.ds_n_annots == node.ds_n_annots):
+                            # This node, we can skip because it does not separate any annotated cells.
                             continue
                         new_mut_info = get_new_mut_info(orig_ent_diff, annot_entropy, clade_entropy,
                                                         node.clade_ent_change,
@@ -887,6 +886,11 @@ def get_annotation_based_clustering_random(cluster_tree, annotation_dict, cell_i
         #         mp_print("Predicted mutual information deviates from independently calculated mut.info."
         #                  "Check this!", ERROR=True)
         #         exit()
+
+    # The loop can stop right after a move, so we recompute the normalized mutual information of the final clustering
+    orig_ent_diff = annot_entropy + clade_entropy - joint_entropy
+    orig_normalization = np.sqrt(annot_entropy * clade_entropy)
+    orig_mut_info = 0. if orig_normalization == 0 else orig_ent_diff / orig_normalization
 
     mp_print("Final annotation-based clustering did {} moves, "
              "created {} clusters, "
@@ -1129,68 +1133,70 @@ def get_max_diam_clustering(cluster_tree, max_diam_threshold, cell_ids=None):
     return clusters
 
 
-if __name__ == "__main__":
+# This was a development test that uses hard-coded paths, so it is commented out (see issue #98).
+# The functions in this file can be imported, see the README.
+# if __name__ == "__main__":
 
-    parser = ArgumentParser(
-        description='Starts from a reconstructed tree output by Bonsai and creates a data-object necessary for further '
-                    'visualization and usage in the Bonsai-Shiny app.')
+#     parser = ArgumentParser(
+#         description='Starts from a reconstructed tree output by Bonsai and creates a data-object necessary for further '
+#                     'visualization and usage in the Bonsai-Shiny app.')
 
-    parser.add_argument('--dataset', type=str, default='test_sarah',
-                        help='Name of dataset. This will determine name of results-folder where information is stored.')
-    # Arguments that define where to find the data and where to store results. Also, whether data comes from Sanity or not
-    # parser.add_argument('--results_folder', type=str, default="/Users/sarahmorillo/bz_mnt/software/waddington-code-github/python_waddington_code/downstream_analyses/test_res",
-    #                     help='path to folder where results will be stored.')
-    parser.add_argument('--tree_folder', type=str,
-                        # default='/Users/sarahmorillo/bz_mnt/software/waddington-code-github/python_waddington_code/downstream_analyses/test_data/tamara_ecoli_isolates/mergers_zscore1.0_ellipsoidsize1.0_smallerrorbars_redoStarry_optTimes_nnnReorder_reorderedEdges',
-                        default='/Users/sarahmorillo/bz_mnt/software/waddington-code-github/downstream_analyses/test/test_data/',
-                        help='Path to folder that determines tree topology. Should contain edgeInfo and vertInfo and tree.nwk')
-    parser.add_argument('--output_file', type=str,
-                        default="/Users/sarahmorillo/bz_mnt/software/waddington-code-github/downstream_analyses/test/test_res/test_binary_tree_8_leafs",
-                        help="output file name")
-    parser.add_argument('--t', type=float, default=5, dest='max_diam_threshold', help="max diam threshold")
-    # Arguments that determine running configurations of MLTree. How much is printed, which steps are run?
-    # parser.add_argument('--verbose', type=str2bool, default=True,
-    #                     help='--verbose False only shows essential print messages (default: True)')
+#     parser.add_argument('--dataset', type=str, default='test_sarah',
+#                         help='Name of dataset. This will determine name of results-folder where information is stored.')
+#     # Arguments that define where to find the data and where to store results. Also, whether data comes from Sanity or not
+#     # parser.add_argument('--results_folder', type=str, default="/Users/sarahmorillo/bz_mnt/software/waddington-code-github/python_waddington_code/downstream_analyses/test_res",
+#     #                     help='path to folder where results will be stored.')
+#     parser.add_argument('--tree_folder', type=str,
+#                         # default='/Users/sarahmorillo/bz_mnt/software/waddington-code-github/python_waddington_code/downstream_analyses/test_data/tamara_ecoli_isolates/mergers_zscore1.0_ellipsoidsize1.0_smallerrorbars_redoStarry_optTimes_nnnReorder_reorderedEdges',
+#                         default='/Users/sarahmorillo/bz_mnt/software/waddington-code-github/downstream_analyses/test/test_data/',
+#                         help='Path to folder that determines tree topology. Should contain edgeInfo and vertInfo and tree.nwk')
+#     parser.add_argument('--output_file', type=str,
+#                         default="/Users/sarahmorillo/bz_mnt/software/waddington-code-github/downstream_analyses/test/test_res/test_binary_tree_8_leafs",
+#                         help="output file name")
+#     parser.add_argument('--t', type=float, default=5, dest='max_diam_threshold', help="max diam threshold")
+#     # Arguments that determine running configurations of MLTree. How much is printed, which steps are run?
+#     # parser.add_argument('--verbose', type=str2bool, default=True,
+#     #                     help='--verbose False only shows essential print messages (default: True)')
 
-    args = parser.parse_args()
-    print(args)
+#     args = parser.parse_args()
+#     print(args)
 
-    """Test max footfall and min pdists clustering on some test case"""
-    nwk_file = '/Users/Daan/Documents/postdoc/bonsai-development/results/simulated_datasets/simulated_binary_6_gens_samplingnoise_seed_1231/final_bonsai_zscore1.0/tree.nwk'
-    with open(nwk_file, "r") as f:
-        nwk_str = f.readline()
-    clusters_list, cut_edges_main = get_footfall_clustering_from_nwk_str(tree_nwk_str=nwk_str,
-                                                                         n_clusters=8)
-    clusters_list_min_pd, cut_edges_min_pd = get_min_pdists_clustering_from_nwk_str(tree_nwk_str=nwk_str,
-                                                                                    n_clusters=8)
+#     """Test max footfall and min pdists clustering on some test case"""
+#     nwk_file = '/Users/Daan/Documents/postdoc/bonsai-development/results/simulated_datasets/simulated_binary_6_gens_samplingnoise_seed_1231/final_bonsai_zscore1.0/tree.nwk'
+#     with open(nwk_file, "r") as f:
+#         nwk_str = f.readline()
+#     clusters_list, cut_edges_main = get_footfall_clustering_from_nwk_str(tree_nwk_str=nwk_str,
+#                                                                          n_clusters=8)
+#     clusters_list_min_pd, cut_edges_min_pd = get_min_pdists_clustering_from_nwk_str(tree_nwk_str=nwk_str,
+#                                                                                     n_clusters=8)
 
-    """In the following lines the tree is read in from the output generated by Bonsai"""
+#     """In the following lines the tree is read in from the output generated by Bonsai"""
 
-    clusters_md = get_max_diam_clustering_from_nwk_file(
-        tree_nwk_file=os.path.join(args.tree_folder, 'test_binary_tree_8_leafs.nwk'),
-        max_diam_threshold=args.max_diam_threshold)
+#     clusters_md = get_max_diam_clustering_from_nwk_file(
+#         tree_nwk_file=os.path.join(args.tree_folder, 'test_binary_tree_8_leafs.nwk'),
+#         max_diam_threshold=args.max_diam_threshold)
 
-    cl_dict = get_cluster_assignments(clusters_list=clusters_md)
+#     cl_dict = get_cluster_assignments(clusters_list=clusters_md)
 
-    # print output:
-    print("number of clusters found: {}".format(len(clusters_md)))
-    # write to file:
-    with open(args.output_file + "-max_diam_{}.cluster".format(args.max_diam_threshold), "w") as fout:
-        cluster_idx = 0
-        for cluster in clusters_md:
-            # if singleton, assign -1
-            if len(cluster) == 1:
-                fout.write("{}\t{}\n".format(cluster[0], -1))
-            else:
-                for leaf in cluster:
-                    fout.write("{}\t{}\n".format(leaf, cluster_idx))
+#     # print output:
+#     print("number of clusters found: {}".format(len(clusters_md)))
+#     # write to file:
+#     with open(args.output_file + "-max_diam_{}.cluster".format(args.max_diam_threshold), "w") as fout:
+#         cluster_idx = 0
+#         for cluster in clusters_md:
+#             # if singleton, assign -1
+#             if len(cluster) == 1:
+#                 fout.write("{}\t{}\n".format(cluster[0], -1))
+#             else:
+#                 for leaf in cluster:
+#                     fout.write("{}\t{}\n".format(leaf, cluster_idx))
 
-                cluster_idx += 1
+#                 cluster_idx += 1
 
-    print("done")
+#     print("done")
 
-    # try out to get longest path from root to a leaf
-    cluster_tree_md = Cluster_Tree()
-    cluster_tree_md.from_newick_file(
-        nwk_file=os.path.join(args.tree_folder, 'test_binary_tree_8_leafs-longest_path_to_leaf_11.5.nwk'))  # Works
-    longest_path_from_root_to_leaf, _ = cluster_tree_md.root.find_longest_path_between_two_leafs()
+#     # try out to get longest path from root to a leaf
+#     cluster_tree_md = Cluster_Tree()
+#     cluster_tree_md.from_newick_file(
+#         nwk_file=os.path.join(args.tree_folder, 'test_binary_tree_8_leafs-longest_path_to_leaf_11.5.nwk'))  # Works
+#     longest_path_from_root_to_leaf, _ = cluster_tree_md.root.find_longest_path_between_two_leafs()

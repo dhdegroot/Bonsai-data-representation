@@ -49,8 +49,7 @@ input_is_sanity_output: true
 # Genes with a signal-to-noise ratio under this cutoff will be dropped. Negative means: keep all.
 # Due to the large number of genes dominated by noise, tree-reconstruction is usually better when we discard the most
 # noisy genes, even though we account for error-bars rigorously.
-# zscore is defined as: z_g = frac{1}{C} sum_c frac{(delta_{gc} - bar{delta_g})^2}{epsilon_{gc}^2}
-# where delta_{gc} is the feature value for gene g and cell c, epsilon_{gc} is the standard-deviation
+# zscore is defined as: z_g = sqrt( frac{1}{C} sum_c frac{delta_{gc}^2}{epsilon_{gc}^2} ), where delta_{gc} is the posterior mean of the deviation of gene g in cell c from the mean of gene g, and epsilon_{gc} is the standard-deviation of this posterior.
 zscore_cutoff: 1.0
 
 # rescale_by_var [bool, default=True]:
@@ -81,7 +80,8 @@ nnn_n_randomtrees: 10
 use_knn: 10
 
 # UB_ellipsoid_size [float, default=1.0]:
-# This is a purely computational optimization that does not affect the final result.
+# This is a heuristic that drastically speeds up the tree reconstruction.
+# It only affects the reconstructed tree in rare cases, and works especially well in high-dimensional spaces, which is the typical use case for Bonsai.
 # Decides whether we calculate an upper bound (UB) for the increase in loglikelihood that
 # merging a certain pair can yield, given that a the root stays in a certain ellipsoid. Using these upper bounds, the
 # calculation can be sped up enormously. If the UB_ellipsoid_size < 0, this estimation will not be used. Otherwise,
