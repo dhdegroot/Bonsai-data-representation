@@ -592,8 +592,8 @@ def get_annotation_based_clustering_random(cluster_tree, annotation_dict, cell_i
                         if not node.include_as_cand:
                             # We can skip this one because the created clusters would be too small
                             continue
-                        if node.annot_ent_change == 0:
-                            # We can skip this node because it splits up all annotated labels from a cluster.
+                        if (node.ds_n_annots == 0) or (tree.root.ds_n_annots == node.ds_n_annots):
+                            # We can skip this node because it does not separate any annotated cells.
                             continue
                         node_list_split.append(node)
                         sampling_probs_split.append(node.clade_ent_change)
@@ -651,9 +651,8 @@ def get_annotation_based_clustering_random(cluster_tree, annotation_dict, cell_i
                         if not node.include_as_cand:
                             # We can skip this one because the created clusters would be too small
                             continue
-                        if node.annot_ent_change == 0:
-                            # if (node.ds_n_annots == 0) or (tree.root.ds_n_annots == node.ds_n_annots):
-                            # This node, we can skip because it splits up all annotated labels from a cluster.
+                        if (node.ds_n_annots == 0) or (tree.root.ds_n_annots == node.ds_n_annots):
+                            # This node, we can skip because it does not separate any annotated cells.
                             continue
                         new_mut_info = get_new_mut_info(orig_ent_diff, annot_entropy, clade_entropy,
                                                         node.clade_ent_change,
