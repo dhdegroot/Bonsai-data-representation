@@ -53,7 +53,7 @@ class Run_Configs:
         pars_defaults = {'step': 'all',
                          'dataset': 'new_dataset',
                          'data_folder': None,
-                         'filenames_data': 'delta.txt,d_delta.txt',
+                         'filenames_data': 'features.txt,standard_deviations.txt',
                          'results_folder': None,
                          'verbose': True,
                          'input_is_sanity_output': True,

@@ -37,7 +37,7 @@ parser.add_argument('--config_filepath', type=str, default=None,
 
 parser.add_argument('--select_target', type=str, default='cluster_centers',
                     help="This will determine what strategy we follow for the "
-                         "spr-moves. Current options are 'root', 'cluster_centers', 'exhaustive'")
+                         "spr-moves. Current options are 'root', 'cluster_centers', 'all'")
 
 parser.add_argument('--search_tol', type=float, default=2,
                     help="Gives the loglikelihood-margin by which a new SPR-search has to be worse than a previous one"

@@ -43,7 +43,7 @@ parser.add_argument('--growth_before_cleanup', type=float, default=.5,
 # TODO: To be moved to config-file
 parser.add_argument('--select_target', type=str, default='cluster_centers',
                     help="This will determine what strategy we follow for the "
-                         "spr-moves. Current options are 'root', 'cluster_centers', 'exhaustive'.")
+                         "spr-moves. Current options are 'root', 'cluster_centers', 'all'.")
 
 parser.add_argument('--nodes_to_add_to', type=str, default=None,
                     help="[NOT YET IMPLEMENTED]"
