@@ -76,11 +76,11 @@ def calc_marker_genes_single(ds_leaf_inds, n_leafs, gene_ids, leaf_ranks_per_gen
     else:
         top_high_genes = list(np.where(marker_scores > marker_cutoff)[0])
         if len(top_high_genes) < min_marker_genes:
-            top_high_genes = list(np.argpartition(marker_scores, min_marker_genes)[:min_marker_genes - 1])
+            top_high_genes = list(np.argpartition(-marker_scores, min_marker_genes)[:min_marker_genes - 1])
 
         top_low_genes = list(np.where(marker_scores < (1 - marker_cutoff))[0])
         if len(top_low_genes) < min_marker_genes:
-            top_low_genes = list(np.argpartition(-marker_scores, min_marker_genes)[:min_marker_genes - 1])
+            top_low_genes = list(np.argpartition(marker_scores, min_marker_genes)[:min_marker_genes - 1])
 
         marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
 
@@ -131,11 +131,11 @@ def calc_marker_genes_double(ds_leaf_inds_1, ds_leaf_inds_2, n_leafs, gene_ids, 
     else:
         top_high_genes = list(np.where(marker_scores > marker_cutoff)[0])
         if len(top_high_genes) < min_marker_genes:
-            top_high_genes = list(np.argpartition(marker_scores, min_marker_genes)[:min_marker_genes - 1])
+            top_high_genes = list(np.argpartition(-marker_scores, min_marker_genes)[:min_marker_genes - 1])
 
         top_low_genes = list(np.where(marker_scores < (1 - marker_cutoff))[0])
         if len(top_low_genes) < min_marker_genes:
-            top_low_genes = list(np.argpartition(-marker_scores, min_marker_genes)[:min_marker_genes - 1])
+            top_low_genes = list(np.argpartition(marker_scores, min_marker_genes)[:min_marker_genes - 1])
 
         marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
 
@@ -201,11 +201,11 @@ def calc_marker_genes_error_bars(indices1, indices2, means, vars, gene_ids=None,
     else:
         top_high_genes = list(np.where(marker_scores > marker_cutoff)[0])
         if len(top_high_genes) < min_marker_genes:
-            top_high_genes = list(np.argpartition(marker_scores, min_marker_genes)[:min_marker_genes - 1])
+            top_high_genes = list(np.argpartition(-marker_scores, min_marker_genes)[:min_marker_genes - 1])
 
         top_low_genes = list(np.where(marker_scores < (1 - marker_cutoff))[0])
         if len(top_low_genes) < min_marker_genes:
-            top_low_genes = list(np.argpartition(-marker_scores, min_marker_genes)[:min_marker_genes - 1])
+            top_low_genes = list(np.argpartition(marker_scores, min_marker_genes)[:min_marker_genes - 1])
 
         marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
 
@@ -280,11 +280,11 @@ def calc_marker_genes_error_bars_approx(indices1, indices2, means, vars, gene_id
     else:
         top_high_genes = list(np.where(marker_scores > marker_cutoff)[0])
         if len(top_high_genes) < min_marker_genes:
-            top_high_genes = list(np.argpartition(marker_scores, min_marker_genes)[:min_marker_genes - 1])
+            top_high_genes = list(np.argpartition(-marker_scores, min_marker_genes)[:min_marker_genes - 1])
 
         top_low_genes = list(np.where(marker_scores < (1 - marker_cutoff))[0])
         if len(top_low_genes) < min_marker_genes:
-            top_low_genes = list(np.argpartition(-marker_scores, min_marker_genes)[:min_marker_genes - 1])
+            top_low_genes = list(np.argpartition(marker_scores, min_marker_genes)[:min_marker_genes - 1])
 
         marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
 
@@ -388,11 +388,11 @@ def calc_marker_genes_error_bars_approx2(indices1, indices2, means, vars, gene_i
     else:
         top_high_genes = list(np.where(marker_scores > marker_cutoff)[0])
         if len(top_high_genes) < min_marker_genes:
-            top_high_genes = list(np.argpartition(marker_scores, min_marker_genes)[:min_marker_genes - 1])
+            top_high_genes = list(np.argpartition(-marker_scores, min_marker_genes)[:min_marker_genes - 1])
 
         top_low_genes = list(np.where(marker_scores < (1 - marker_cutoff))[0])
         if len(top_low_genes) < min_marker_genes:
-            top_low_genes = list(np.argpartition(-marker_scores, min_marker_genes)[:min_marker_genes - 1])
+            top_low_genes = list(np.argpartition(marker_scores, min_marker_genes)[:min_marker_genes - 1])
 
         marker_genes = {gene_ind: marker_scores[gene_ind] for gene_ind in top_high_genes + top_low_genes}
 

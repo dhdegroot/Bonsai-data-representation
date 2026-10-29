@@ -345,6 +345,7 @@ class Layout_Tree:
         for vert_ind, node in self.get_vert_ind_to_node_DF().items():
             if node.isLeaf:
                 node.dsLeafs_weighted = 1
+        self.root.getDsLeafs(self.nNodes, verbose=False, get_nodelist=False)
         self.root.set_eq_angles(my_shade=360, use_weights=True)
         self.coords = self.root.positionChildren(self.coords)
 

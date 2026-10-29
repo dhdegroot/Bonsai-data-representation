@@ -888,6 +888,11 @@ def get_annotation_based_clustering_random(cluster_tree, annotation_dict, cell_i
         #                  "Check this!", ERROR=True)
         #         exit()
 
+    # The loop can stop right after a move, so we recompute the normalized mutual information of the final clustering
+    orig_ent_diff = annot_entropy + clade_entropy - joint_entropy
+    orig_normalization = np.sqrt(annot_entropy * clade_entropy)
+    orig_mut_info = 0. if orig_normalization == 0 else orig_ent_diff / orig_normalization
+
     mp_print("Final annotation-based clustering did {} moves, "
              "created {} clusters, "
              "with a Normalized Mutual Information of {}.".format(n_moves + 1, n_trees, orig_mut_info))

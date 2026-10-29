@@ -34,7 +34,7 @@ def merge_clusters_acc_cellstates(unfiltered_clusters, unfiltered_umi_counts, un
     summed_counts_clst: new UMI-matrix
     counts: number of cells per cellstate
     cs_annot: Annotation that can be used for the cellstates (indicating the cellstate name,
-    and cs<{small_cs_annot_cutoff} for smaller cellstates
+    and cs<={small_cs_annot_cutoff} for smaller cellstates
     cell_annot: Annotation that can be used for the cells (indicating the same as above, but now per cell)
     cs_ids: The new ids of the cellstates
     cell_id_to_cs_id: Mapping from each cell-ID to their cs-ID
@@ -99,7 +99,7 @@ def merge_clusters_acc_cellstates(unfiltered_clusters, unfiltered_umi_counts, un
         if counts[cs_ind] > cutoff_annot:
             cell_annot.append('cs_{}'.format(cs_ind))
         else:
-            cell_annot.append('cs<{}'.format(cutoff_annot))
+            cell_annot.append('cs<={}'.format(cutoff_annot))
 
     start = time()
     # Create a dictionary going from cluster-label to cell-indices

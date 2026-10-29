@@ -130,7 +130,7 @@ from bonsai.bonsai_dataprocessing import loadReconstructedTreeAndData
 from bonsai_scout.bonsai_scout_helpers import get_edge_coords, Bonvis_figure, Bonvis_settings, merge_cells_at_zero_dist, \
     Bonvis_metadata, Celltype_info, process_annot_based_clsts
 from bonsai_scout.my_tree_layout import my_tree_layout
-from bonsai_scout.change_gene_ids import change_json_file
+from bonsai_scout.change_gene_ids import change_json_file, get_new_gene_ids
 
 if len(args.new_gene_ids_file):
     change_json_file(new_gene_ids_file=args.new_gene_ids_file, path_to_json=os.path.join(tree_folder, 'metadata.json'))
@@ -147,6 +147,10 @@ scData, _ = loadReconstructedTreeAndData(run_configs, tree_folder, reprocess_dat
                                          get_cell_info=True, all_ranks=False, all_genes=all_genes, get_data=get_data,
                                          rel_to_results=False, no_data_needed=True, calc_loglik=False,
                                          get_posterior_ltqs=True)
+if len(args.new_gene_ids_file) and args.take_all_genes:
+    # With --take_all_genes, the gene-IDs are read from the data folder again, so we also change them here
+    scData.metadata.geneIds = get_new_gene_ids(new_gene_ids_file=args.new_gene_ids_file,
+                                               gene_ids=scData.metadata.geneIds)
 
 # We read in cellstates-information if it is available. This is only necessary if cellstates-output was run to group
 # cells, and these groups were used as input to Bonsai.
