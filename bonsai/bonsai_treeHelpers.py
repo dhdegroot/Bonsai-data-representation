@@ -3942,97 +3942,108 @@ class Tree:
         # self.root.tParent = None
         self.root.reset_root_node(parent_ind=None, old_tParent=self.root.tParent)
 
-    # Tree.from_newick is not used anywhere, so it is commented out to prevent bugs (see issue #98).
-    # To read a newick file, one can use Cluster_Tree.from_newick_file in downstream_analyses/get_cluster_helpers.py.
-    # def from_newick(self, nwk_str, node_id_to_vert_ind=None):
-    #     # nodes = []
-    #     # Here we will keep a dictionary from level down the tree, to lists of nodes that don't have an assigned parent
-    #     level_to_nodes = {0: []}
-    #     level = 0
-    #     curr_str = ''
-    #     nodeIdY_tParentF = True
-    #     curr_node = None
-    #     new_node = False
-    #     self.nNodes = 0
-    #     internal_node_ids_made_up = 0
-    #     for char in nwk_str:
-    #         if char == '(':
-    #             # We go down the tree one level
-    #             level += 1
-    #             level_to_nodes[level] = []
-    #             # It also means we start a new node
-    #             new_node = True
-    #         elif char == ')':
-    #             # We go back up to the parent level
-    #             level -= 1
-    #             # It also means we start a new node
-    #             new_node = True
-    #         elif char == ':':
-    #             # This indicates a time is coming
-    #             if curr_node is None:
-    #                 # This indicates no node-id is stored in the nwk-file for this node. Make one up
-    #                 curr_node = TreeNode(isLeaf=True)
-    #                 self.nNodes += 1
-    #                 curr_node.level = level
-    #                 level_to_nodes[level].append(curr_node)
-    #                 # nodeIdY_tParentF = True
-    #                 curr_str = 'internal_{}'.format(internal_node_ids_made_up)
-    #                 internal_node_ids_made_up += 1
-    #                 new_node = False
+    def from_newick(self, nwk_str, node_id_to_vert_ind=None):
+        # nodes = []
+        # Here we will keep a dictionary from level down the tree, to lists of nodes that don't have an assigned parent
+        level_to_nodes = {0: []}
+        level = 0
+        curr_str = ''
+        nodeIdY_tParentF = True
+        curr_node = None
+        new_node = False
+        self.nNodes = 0
+        internal_node_ids_made_up = 0
+        for char in nwk_str:
+            if char == '(':
+                # We go down the tree one level
+                level += 1
+                level_to_nodes[level] = []
+                # It also means we start a new node
+                new_node = True
+            elif char == ')':
+                # We go back up to the parent level
+                level -= 1
+                # It also means we start a new node
+                new_node = True
+            elif char == ':':
+                # This indicates a time is coming
+                if curr_node is None:
+                    # This indicates no node-id is stored in the nwk-file for this node. Make one up
+                    curr_node = TreeNode(isLeaf=True)
+                    self.nNodes += 1
+                    curr_node.level = level
+                    level_to_nodes[level].append(curr_node)
+                    # nodeIdY_tParentF = True
+                    curr_str = 'internal_{}'.format(internal_node_ids_made_up)
+                    internal_node_ids_made_up += 1
+                    new_node = False
 
-    #             curr_node.nodeId = curr_str
-    #             if (node_id_to_vert_ind is not None) and (curr_node.nodeId in node_id_to_vert_ind):
-    #                 curr_node.vert_ind = node_id_to_vert_ind[curr_node.nodeId]
-    #             nodeIdY_tParentF = False
-    #             curr_str = ''
-    #         elif char == ',':
-    #             # This indicates the time is complete, new child coming
-    #             new_node = True
-    #         elif char == ';':
-    #             if curr_node is None:
-    #                 # This indicates no node-id is stored in the nwk-file for this node. Make one up
-    #                 curr_node = TreeNode(isLeaf=True)
-    #                 self.nNodes += 1
-    #                 curr_node.level = level
-    #                 level_to_nodes[level].append(curr_node)
-    #                 # nodeIdY_tParentF = True
-    #                 curr_str = 'internal_{}'.format(internal_node_ids_made_up)
-    #                 internal_node_ids_made_up += 1
-    #                 nodeIdY_tParentF = True
-    #             curr_node.isRoot = True
-    #             new_node = True
-    #         else:
-    #             if curr_node is None:
-    #                 curr_node = TreeNode(isLeaf=True)
-    #                 self.nNodes += 1
-    #                 curr_node.level = level
-    #                 level_to_nodes[level].append(curr_node)
-    #                 nodeIdY_tParentF = True
-    #             curr_str += char
-    #             new_node = False
+                curr_node.nodeId = curr_str
+                if (node_id_to_vert_ind is not None) and (curr_node.nodeId in node_id_to_vert_ind):
+                    curr_node.vert_ind = node_id_to_vert_ind[curr_node.nodeId]
+                nodeIdY_tParentF = False
+                curr_str = ''
+            elif char == ',':
+                # This indicates the time is complete, new child coming
+                new_node = True
+            elif char == ';':
+                if curr_node is None:
+                    # This indicates no node-id is stored in the nwk-file for this node. Make one up
+                    curr_node = TreeNode(isLeaf=True)
+                    self.nNodes += 1
+                    curr_node.level = level
+                    level_to_nodes[level].append(curr_node)
+                    # nodeIdY_tParentF = True
+                    curr_str = 'internal_{}'.format(internal_node_ids_made_up)
+                    internal_node_ids_made_up += 1
+                    nodeIdY_tParentF = True
+                curr_node.isRoot = True
+                new_node = True
+            else:
+                if curr_node is None:
+                    curr_node = TreeNode(isLeaf=True)
+                    self.nNodes += 1
+                    curr_node.level = level
+                    level_to_nodes[level].append(curr_node)
+                    nodeIdY_tParentF = True
+                curr_str += char
+                new_node = False
 
-    #         if new_node:
-    #             if curr_node is not None:
-    #                 if nodeIdY_tParentF:
-    #                     curr_node.nodeId = curr_str
-    #                     if (node_id_to_vert_ind is not None) and (curr_node.nodeId in node_id_to_vert_ind):
-    #                         curr_node.vert_ind = node_id_to_vert_ind[curr_node.nodeId]
-    #                 else:
-    #                     curr_node.tParent = float(curr_str)
-    #                 curr_str = ''
-    #                 # level_to_nodes[level].append(curr_node)
-    #                 # Get all children and add them to this node
-    #                 if (curr_node.level + 1) in level_to_nodes:
-    #                     curr_node.childNodes = level_to_nodes[curr_node.level + 1]
-    #                     if len(level_to_nodes[curr_node.level + 1]) > 0:
-    #                         curr_node.isLeaf = False
-    #                         level_to_nodes[curr_node.level + 1] = []
-    #                 else:
-    #                     curr_node.childNodes = []
-    #             curr_node = None
-    #     self.root = level_to_nodes[0][0]
-    #     self.max_node_ind = self.root.get_max_node_ind(-np.inf)
-    #     bs_glob.max_node_ind = self.max_node_ind
+            if new_node:
+                if curr_node is not None:
+                    if nodeIdY_tParentF:
+                        curr_node.nodeId = curr_str
+                        if (node_id_to_vert_ind is not None) and (curr_node.nodeId in node_id_to_vert_ind):
+                            curr_node.vert_ind = node_id_to_vert_ind[curr_node.nodeId]
+                    else:
+                        curr_node.tParent = float(curr_str)
+                    curr_str = ''
+                    # level_to_nodes[level].append(curr_node)
+                    # Get all children and add them to this node
+                    if (curr_node.level + 1) in level_to_nodes:
+                        curr_node.childNodes = level_to_nodes[curr_node.level + 1]
+                        if len(level_to_nodes[curr_node.level + 1]) > 0:
+                            curr_node.isLeaf = False
+                            level_to_nodes[curr_node.level + 1] = []
+                    else:
+                        curr_node.childNodes = []
+                curr_node = None
+        self.root = level_to_nodes[0][0]
+        # Number the nodes as elsewhere in Bonsai: the leafs (cells) get 0, 1, ..., the internal nodes come after them, and the root gets -1.
+        self.root.isRoot = True
+        self.root.nodeInd = -1
+        nodes = self.root.getNodeList([], returnLeafs=True, returnRoot=False)
+        leafs = [node for node in nodes if node.isLeaf]
+        internal_nodes = [node for node in nodes if not node.isLeaf]
+        for node_ind, node in enumerate(leafs + internal_nodes):
+            node.nodeInd = node_ind
+            node.isCell = node.isLeaf
+        self.root.storeParent()
+        self.nNodes = len(nodes) + 1
+        bs_glob.nNodes = self.nNodes
+        bs_glob.nCells = len(leafs)
+        self.max_node_ind = len(nodes) - 1
+        bs_glob.max_node_ind = self.max_node_ind
 
     def remove_two_child_root(self, change_node_inds=False):
         if len(self.root.childNodes) > 2:
