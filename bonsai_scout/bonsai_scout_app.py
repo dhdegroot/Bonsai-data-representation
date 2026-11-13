@@ -469,9 +469,11 @@ app_ui = ui.page_sidebar(
 bv_objcts = BonvisObjects()
 
 
-# Execute the extended task logic on a different thread. To use a different
-# process instead, use concurrent.futures.ProcessPoolExecutor.
-pool = concurrent.futures.ProcessPoolExecutor()
+# Execute the extended task logic (the marker-gene calculation) in separate processes. The pool is shared by all
+# sessions, so we cap the number of workers to keep heavy marker-gene calculations from occupying all CPUs and
+# slowing down the app for everyone. Further requests wait in the queue.
+MAX_MARKER_GENE_WORKERS = 4
+pool = concurrent.futures.ProcessPoolExecutor(max_workers=max(1, min(MAX_MARKER_GENE_WORKERS, os.cpu_count() or 1)))
 
 
 def server(input, output, session: Session):
@@ -853,12 +855,15 @@ def server(input, output, session: Session):
     @reactive.effect
     @reactive.event(input.go_clustering)
     def _():
-        if input.clustering_method() == 'distance':
-            cluster_node_style = "Bnsi_cluster_n{}".format(input.n_clusters())
-        elif input.clustering_method() == 'annotation':
-            cluster_node_style = "Bnsi_cluster_" + input.annot_for_clustering()
-            bv_objct = bv_objcts[(user_id, session.input[".clientdata_url_search"].get())]
-            annot_info = get_clustering_annot_info(bv_objct)
+        bv_objct = bv_objcts[(user_id, session.input[".clientdata_url_search"].get())]
+        cluster_node_style = get_cluster_node_style(bv_objct)
+        annot_info = get_clustering_annot_info(bv_objct)
+        if annot_info is None:
+            # Don't switch to a node style that doesn't exist: that would color all cells the same.
+            logger.error("Did not find clustering annotation: {}.".format(cluster_node_style))
+            notify_clustering_not_found()
+            return
+        if input.clustering_method() == 'annotation':
             if (not hasattr(annot_info, 'small_type_cutoff')) or (input.small_cluster_cutoff() != annot_info.small_type_cutoff):
                 bv_objct.bonvis_fig.set_small_type_cutoff(annot_info, input.small_cluster_cutoff())
                 # Invalidate old node style to re-draw the figure
@@ -1323,6 +1328,10 @@ def server(input, output, session: Session):
 
         # Add clustering annotation to downloadable node styles
         annot_info = add_clustering_to_nodestyles(bv_objct)
+        if annot_info is None:
+            logger.error("Could not find the clustering you want to download.")
+            notify_clustering_not_found()
+            return
 
         cluster_labels = bv_objct.bonvis_metadata.cs_info['cluster_info_dict'].keys()
         info_key = annot_info.info_key
@@ -1361,10 +1370,11 @@ def server(input, output, session: Session):
     @reactive.event(input.save_clustering)
     def _():
         bv_objct = bv_objcts[(user_id, session.input[".clientdata_url_search"].get())]
-        if input.clustering_method() == 'distance':
-            cluster_node_style = "Bnsi_cluster_n{}".format(input.n_clusters())
-        elif input.clustering_method() == 'annotation':
-            cluster_node_style = "Bnsi_cluster_" + input.annot_for_clustering()
+        cluster_node_style = get_cluster_node_style(bv_objct)
+        if get_clustering_annot_info(bv_objct) is None:
+            logger.error("Did not find clustering annotation: {}.".format(cluster_node_style))
+            notify_clustering_not_found()
+            return
 
         # Set nodestyle to cluster-node style
         node_style.set(cluster_node_style)
@@ -1373,13 +1383,33 @@ def server(input, output, session: Session):
         add_clustering_to_nodestyles(bv_objct)
 
 
+    def notify_clustering_not_found():
+        ui.notification_show("This clustering is not available for this dataset. The dataset may have to be "
+                             "preprocessed again with a newer version of Bonsai-scout.",
+                             type='error', duration=10)
+
+
+    def get_cluster_node_style(bv_objct):
+        # Label of the currently selected clustering. Data preprocessed before Feb 2026 stores clusterings as
+        # 'annot_cluster_*' (label 'Cluster_*') instead of 'annot_bnsi_cluster_*' (label 'Bnsi_cluster_*').
+        # For backwards-compatibility we fall back to the old label if the new one is not available.
+        if input.clustering_method() == 'distance':
+            suffix = "n{}".format(input.n_clusters())
+        else:
+            suffix = input.annot_for_clustering()
+        candidates = ["Bnsi_cluster_" + suffix, "Cluster_" + suffix]
+        celltype_info = bv_objct.bonvis_fig.bonvis_settings.celltype_info
+        known_labels = {annot_info.label.lower() for annot_info in celltype_info.annot_infos.values()}
+        for candidate in candidates:
+            if candidate.lower() in known_labels:
+                return candidate
+        return candidates[0]
+
+
     def get_clustering_annot_info(bv_objct):
         # Get annot-info object 
         celltype_info = bv_objct.bonvis_fig.bonvis_settings.celltype_info
-        if input.clustering_method() == 'distance':
-            cluster_node_style = "Bnsi_cluster_n{}".format(input.n_clusters())
-        elif input.clustering_method() == 'annotation':
-            cluster_node_style = "Bnsi_cluster_" + input.annot_for_clustering()
+        cluster_node_style = get_cluster_node_style(bv_objct)
         annot_info = [annot_info for annot, annot_info in celltype_info.annot_infos.items() if
                       annot_info.label.lower() == cluster_node_style.lower()]
         if len(annot_info) == 1:
@@ -1628,7 +1658,9 @@ def server(input, output, session: Session):
         ui.update_selectize('selected_annot', selected='no_subset')
         if input.switch_mask():
             ui.update_switch('switch_mask', value=False)
-            update_mask.set(update_mask.get() + 1)
+        # Always recompute the mask: the temporary subset-highlight may still be on, and its switch-off step was just
+        # cancelled by setting the temp_mask-counter above.
+        update_mask.set(update_mask.get() + 1)
 
     @reactive.effect
     @reactive.event(input.reset_subset_2)
@@ -1645,7 +1677,9 @@ def server(input, output, session: Session):
         ui.update_selectize('selected_annot_2', selected='no_subset')
         if input.switch_mask_2():
             ui.update_switch('switch_mask_2', value=False)
-            update_mask.set(update_mask.get() + 1)
+        # Always recompute the mask: the temporary subset-highlight may still be on, and its switch-off step was just
+        # cancelled by setting the temp_mask-counter above.
+        update_mask.set(update_mask.get() + 1)
 
     @reactive.effect
     @reactive.event(input.reset_subset_annot)
@@ -1660,7 +1694,9 @@ def server(input, output, session: Session):
         ui.update_selectize('selected_annot_annot', selected='no_subset')
         if input.switch_mask_annot():
             ui.update_switch('switch_mask_annot', value=False)
-            update_mask.set(update_mask.get() + 1)
+        # Always recompute the mask: the temporary subset-highlight may still be on, and its switch-off step was just
+        # cancelled by setting the temp_mask-counter above.
+        update_mask.set(update_mask.get() + 1)
 
 
     """Repetitive part on selecting nodes for subtrees"""
