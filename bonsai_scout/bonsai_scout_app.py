@@ -779,10 +779,19 @@ def server(input, output, session: Session):
             choices=bv_objct.size_annotation_dict,
             selected=bv_objct.init_size_style,
         )
-        ui.update_selectize("annot_for_clustering",
-            choices=bv_objct.clustering_annotation_dict,
-            selected=bv_objct.init_node_style,
-        )
+        if bv_objct.clustering_annotation_dict:
+            ui.update_selectize("annot_for_clustering",
+                label="Annotation to guide clustering:",
+                choices=bv_objct.clustering_annotation_dict,
+                selected=bv_objct.init_node_style,
+            )
+        else:
+            # Annotation-guided clusterings are computed during preprocessing (since Dec 2025), and only for
+            # categorical annotations. Older or annotation-free datasets have none.
+            ui.update_selectize("annot_for_clustering",
+                label="No annotation-guided clusterings available for this dataset.",
+                choices={},
+            )
         ui.update_selectize(
             "feature_path_expr",
             choices=bv_objct.feature_dict,
@@ -857,6 +866,9 @@ def server(input, output, session: Session):
     def _():
         bv_objct = bv_objcts[(user_id, session.input[".clientdata_url_search"].get())]
         cluster_node_style = get_cluster_node_style(bv_objct)
+        if cluster_node_style is None:
+            notify_no_annotation_selected()
+            return
         annot_info = get_clustering_annot_info(bv_objct)
         if annot_info is None:
             # Don't switch to a node style that doesn't exist: that would color all cells the same.
@@ -1371,6 +1383,9 @@ def server(input, output, session: Session):
     def _():
         bv_objct = bv_objcts[(user_id, session.input[".clientdata_url_search"].get())]
         cluster_node_style = get_cluster_node_style(bv_objct)
+        if cluster_node_style is None:
+            notify_no_annotation_selected()
+            return
         if get_clustering_annot_info(bv_objct) is None:
             logger.error("Did not find clustering annotation: {}.".format(cluster_node_style))
             notify_clustering_not_found()
@@ -1386,7 +1401,13 @@ def server(input, output, session: Session):
     def notify_clustering_not_found():
         ui.notification_show("This clustering is not available for this dataset. The dataset may have to be "
                              "preprocessed again with a newer version of Bonsai-scout.",
-                             type='error', duration=10)
+                             type='error', duration=5)
+
+
+    def notify_no_annotation_selected():
+        ui.notification_show("No annotation selected for annotation-guided clustering. This dataset may not have "
+                             "any annotation-guided clusterings; these are computed when the dataset is preprocessed.",
+                             type='warning', duration=5)
 
 
     def get_cluster_node_style(bv_objct):
@@ -1397,6 +1418,9 @@ def server(input, output, session: Session):
             suffix = "n{}".format(input.n_clusters())
         else:
             suffix = input.annot_for_clustering()
+            if not suffix:
+                # Dropdown is empty (no annotation-guided clusterings in this dataset) or nothing is selected
+                return None
         candidates = ["Bnsi_cluster_" + suffix, "Cluster_" + suffix]
         celltype_info = bv_objct.bonvis_fig.bonvis_settings.celltype_info
         known_labels = {annot_info.label.lower() for annot_info in celltype_info.annot_infos.values()}
@@ -1410,6 +1434,8 @@ def server(input, output, session: Session):
         # Get annot-info object 
         celltype_info = bv_objct.bonvis_fig.bonvis_settings.celltype_info
         cluster_node_style = get_cluster_node_style(bv_objct)
+        if cluster_node_style is None:
+            return None
         annot_info = [annot_info for annot, annot_info in celltype_info.annot_infos.items() if
                       annot_info.label.lower() == cluster_node_style.lower()]
         if len(annot_info) == 1:
