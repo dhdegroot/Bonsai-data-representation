@@ -6,20 +6,20 @@ The *Bonsai* tree-reconstruction was originally designed for the analysis of sin
 
 ### *Bonsai* for scRNA-seq data using *Sanity*
 When using *Bonsai* for scRNAseq-data, we highly recommend using *Sanity* for processing of the raw counts [Sanity's GitHub-page](https://github.com/jmbreda/Sanity), or to upload your data to our [single-cell pipeline](https://bonsai.unibas.ch). If running *Bonsai* after *Sanity*, *Bonsai* just requires the files in the output-directory created by *Sanity*, and can be run with the argument `--input_is_sanity_output True`. 
-**IMPORTANT: Make sure to run *Sanity* with the flags `-e 1 -v_m MAP`**. The `-e 1` makes sure that we get *Sanity*'s extended output, and the `-v_m`-argument makes sure that the inferred gene expression values correspond to a single guess of the gene-variance, rather than to an average over the gene-variances. See the SI of the *Bonsai*-publication for an extensive discussion of why this is the preferred mode of running *Sanity* when getting *Bonsai* input.
+**IMPORTANT: Make sure to run *Sanity* (version 3.0 or newer) with the flag `--bonsai-output-mode`**. This flag makes *Sanity* write exactly what *Bonsai* needs: the *measurement* estimates of the log-transcription-quotients (LTQs) with their error-bars, at a single guess of the gene-variance (the expected-a-posteriori estimate, `-v_m EAP`), as NPY-files. These measurement estimates are *Sanity*'s posterior estimates out of which the prior has been divided, so that they describe what the counts alone say about each cell. This is essential, because the tree will replace *Sanity*'s simple Gaussian prior. See the SI of the *Bonsai*-publication for an extensive discussion of why the prior needs to be removed.
 
 Example Sanity-command:
 ```
-Sanity -n <number_of_threads> -f <path_to_gene_table.tsv> -d <path_to_output_folder> -e 1 -v_m MAP
+Sanity -n <number_of_threads> -f <path_to_gene_table.tsv> -d <path_to_output_folder> --bonsai-output-mode
 ```
 or with an mtx-file:
 ```
-Sanity -n <number_of_threads> -f <path_to_gene_table.mtx> -d <path_to_output_folder> -e 1 -v_m MAP -mtx_genes <path_to_gene_ids.tsv> -mtx_cells <path_to_cell_ids.tsv>
+Sanity -n <number_of_threads> -f <path_to_gene_table.mtx> -d <path_to_output_folder> --bonsai-output-mode -mtx_genes <path_to_gene_ids.tsv> -mtx_cells <path_to_cell_ids.tsv>
 ```
 
-The `-v_m`-argument picks how *Sanity* estimates the gene-variances, and *Bonsai* accepts three of its four options: `MAP`, `MLE`, and `EAP`. All three options fix a single prior-variance per gene (the maximum-a-posteriori, maximum-likelihood-estimate, and expected-a-posteriori) and return the corresponding posterior distributions of the gene expression estimates. This is essential, because Bonsai uses this gene-variance to divide out the prior before starting its inference (as the tree will replace Sanity's simple Gaussian prior). Instead, the `MARG`-option marginalises over the gene-variance. **This cannot be used as *Bonsai*-input**, since its estimates are then no longer a likelihood that *Bonsai* can reconstruct. *Bonsai* recognises such output and stops with an explanatory message.
+The output-folder then holds `ltqs_measurement_approx.npy`, `ltqs_measurement_approx_error_bars.npy`, `gene_means.npy`, `gene_variances.npy`, `geneID.txt`, `cellID.txt` and `sanity_command.txt`. *Bonsai* also reads the same files as text, which *Sanity* writes when it is run with `--ltq-estimate measured` (or `both`) instead of `--bonsai-output-mode`. A *Sanity*-run that wrote only the posterior estimates (`ltqs_posterior`) cannot be used: *Bonsai* recognises such output and stops with an explanatory message. The same holds for output made with `-v_m MARG`, which marginalises over the gene-variance, while output made with `-v_m MAP` or `-v_m MLE` is accepted.
 
-*Bonsai* also still reads output made by *Sanity*-versions older than 2.0. Those had to be run with `-e 1 -max_v true`, which wrote the files that *Bonsai* needs with a `_vmax`-suffix. *Bonsai* tells the two apart by the `sanity_command.txt`-file that *Sanity* writes into its output-folder from version 2.0 onwards, so no *Bonsai*-argument needs changing when you update *Sanity*.
+*Bonsai* also still reads output made by older *Sanity*-versions. Version 2 had to be run with `-e 1 -v_m MAP`, and versions older than 2.0 with `-e 1 -max_v true`, which wrote the files that *Bonsai* needs with a `_vmax`-suffix. These versions report posterior estimates, and *Bonsai* divides out the prior itself. *Bonsai* tells the versions apart by the `sanity_command.txt`-file that *Sanity* writes into its output-folder from version 2.0 onwards, so no *Bonsai*-argument needs changing when you update *Sanity*.
 
 ### *Bonsai* on general datatypes
 If running *Bonsai* based on other data, read the Section on [Running *Bonsai* on other data-types](https://github.com/dhdegroot/Bonsai-data-representation#running-bonsai-on-other-data-types).
@@ -176,7 +176,7 @@ To use *Bonsai* on a general dataset that contains $C$ objects in an $G$-dimensi
 ### The Bonsai run-configurations for general data types
 After the data have been properly normalized, running *Bonsai* happens similarly to what was described before for *Sanity*-output. The major differences are:
 * The argument `--input_is_sanity_output` should now be set to `False`.
-* The argument `--filenames_data` should now be used to point *Bonsai* to the files with features and error-bars, while for *Sanity*-output *Bonsai* works out these filenames itself (`delta.txt,d_delta.txt` for *Sanity* 2.0 and newer, `delta_vmax.txt,d_delta_vmax.txt` for older versions). So, for example, one could give `--filenames_data features.txt,standard_deviations.txt`.
+* The argument `--filenames_data` should now be used to point *Bonsai* to the files with features and error-bars, while for *Sanity*-output *Bonsai* works out these filenames itself (`ltqs_measurement_approx` and `ltqs_measurement_approx_error_bars` for *Sanity* 3.0 and newer, `delta.txt,d_delta.txt` for *Sanity* 2, `delta_vmax.txt,d_delta_vmax.txt` for older versions). So, for example, one could give `--filenames_data features.txt,standard_deviations.txt`.
 
 ## *Bonsai-scout*: Visualizing the *Bonsai* results
 The reconstructed tree can be visualized in the Bonsai-scout-app that was developed for this. 
@@ -404,7 +404,7 @@ Filenames of input-files for features and standard deviations separated by a com
 * `--results_folder [str, default='']`:
 Path (absolute or relative to "bonsai-development") to folder where results will be stored.
 * `--input_is_sanity_output [bool, default=true]`:
-The provided means and stds by *Sanity* are the means and stds of the posterior for the feature: P(x | D), but in Bonsai we need the probability of the data given the feature value: P(D | x). These are related through P(x | D) ~ P(D | x) P(x). So, we need to divide out the prior. If the input is Sanity-output we know how to do this because the reported posterior is Gaussian and the prior was Gaussian around zero (see the SI of the Bonsai-publication). If your input-data is not Sanity-output, set this flag to False, but make sure to provide *Bonsai* with the required means and standard-deviations of the likelihood (P(D | x)).
+In Bonsai we need the probability of the data given the feature value: P(D | x), while *Sanity*'s posterior for the feature is P(x | D). These are related through P(x | D) ~ P(D | x) P(x). So, the prior needs to be divided out. From version 3.0 onwards, *Sanity* does this itself and writes the result as its measurement estimates, which *Bonsai* then reads as they are. Older *Sanity*-versions report the means and stds of the posterior, and *Bonsai* divides out the prior, which it can do because the reported posterior is Gaussian and the prior was Gaussian around zero (see the SI of the Bonsai-publication). If your input-data is not Sanity-output, set this flag to False, but make sure to provide *Bonsai* with the required means and standard-deviations of the likelihood (P(D | x)).
 
 ### Run parameters
 * `--zscore_cutoff [float, default=1]`:

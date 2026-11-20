@@ -22,7 +22,8 @@ logger.setLevel(log_level)
 parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 # Add the parent directory to sys.path
 sys.path.append(parent_dir)
-from bonsai.bonsai_helpers import mp_print, str2bool, startMPI, read_ids, write_ids, resolve_sanity_filepaths
+from bonsai.bonsai_helpers import mp_print, str2bool, startMPI, read_ids, write_ids, resolve_sanity_filepaths, \
+    read_sanity_gene_vector
 
 parser = ArgumentParser(description='Takes Sanity-output that was run on seperate batches, then merges the batches.')
 
@@ -81,19 +82,15 @@ all_gene_ids = read_ids(os.path.join(sanity_folder, 'geneID.txt'))
 all_gene_ids_to_ind = {gene_id: ind for ind, gene_id in enumerate(all_gene_ids)}
 n_genes_all = len(all_gene_ids)
 
-# Read in mean-per-gene. Which filename Sanity used depends on its version, so we let Bonsai work that out.
-gene_means = []
-with open(resolve_sanity_filepaths(sanity_folder)['gene_means'], 'r') as file:
-    reader = csv.reader(file, delimiter="\t")
-    for row in reader:
-        gene_means.append(float(row[0]))
-gene_means = np.array(gene_means)
+# Read in mean-per-gene. Which filename and format Sanity used depends on its version, so we let Bonsai work that out.
+gene_means = read_sanity_gene_vector(resolve_sanity_filepaths(sanity_folder)['gene_means'])
 
 cell_ids_all = []
 deltas_all = []
 d_deltas_all = []
 for batch_id in batch_ids:
-    # For each batch, read in the sanity-output, divide out the prior (done in read_and_filter)
+    # For each batch, read in the sanity-output without Sanity's prior: read_and_filter divides it out, or reads the
+    # measurement LTQs out of which Sanity (3.0 or newer) has already divided it
     sanity_folder = os.path.join(args.sanity_output_folder, batch_id)
     tmp_folder = os.path.join(sanity_folder, 'processed_data_communication')
 

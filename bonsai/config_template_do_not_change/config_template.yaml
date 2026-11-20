@@ -27,19 +27,21 @@ results_folder: results/new_dataset
 verbose: true
 
 # input_is_sanity_output [bool, default=true]:
-# The provided means and stds by Sanity are the means and stds of the posterior for the
-# feature: P(x | D), but in Bonsai we need the likelihood of the data given the feature value:
-# P(D | x). These are related through P(x | D) ~ P(D | x) P(x). So, we need to divide
-# out the prior. If the input is Sanity-output, we know how to do this because the reported
-# posterior is Gaussian and the prior was Gaussian around zero (see the SI of the
-# Bonsai-publication.
+# In Bonsai we need the likelihood of the data given the feature value: P(D | x), while Sanity's
+# posterior for the feature is P(x | D). These are related through P(x | D) ~ P(D | x) P(x). So, the
+# prior needs to be divided out. From version 3.0 onwards, Sanity does this itself and writes the
+# result as its measurement estimates, which Bonsai reads as they are. Older Sanity-versions report
+# the means and stds of the posterior, and Bonsai divides out the prior, which it can do because the
+# reported posterior is Gaussian and the prior was Gaussian around zero (see the SI of the
+# Bonsai-publication).
 # If your input data is not Sanity-output, set this flag to False, but make sure to provide
 # Bonsai with the required means and variances of the likelihood (P(D | x)).
 # When this flag is True, filenames_data is ignored: Bonsai works out which files to read from the
-# Sanity-output-folder itself. Sanity 2.0 and newer should be run with '-e 1 -v_m MAP' (or '-v_m MLE'
-# or '-v_m EAP'); '-v_m MARG' cannot be used, since it marginalises over the gene-variance so that the
-# reported estimates are no longer a likelihood that Bonsai can reconstruct. Sanity-versions older than
-# 2.0 should be run with '-e 1 -max_v true'.
+# Sanity-output-folder itself. Sanity 3.0 and newer should be run with '--bonsai-output-mode'.
+# Sanity 2 should be run with '-e 1 -v_m MAP' (or '-v_m MLE' or '-v_m EAP'), and Sanity-versions older
+# than 2.0 with '-e 1 -max_v true'. Output made with '-v_m MARG' cannot be used, since it marginalises
+# over the gene-variance so that the reported estimates are no longer a likelihood that Bonsai can
+# reconstruct.
 input_is_sanity_output: true
 
 
