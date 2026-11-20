@@ -2784,6 +2784,42 @@ def loglik_given_true_var_log(true_var_log, inferred_vals, inferred_vars):
         np.sum(alpha))  # the middle term was missing in the other implementation
 
 
+def iterate_sanity_measurement_rows(meanspath, stdspath, first_row, end_row, numpy_input):
+    """
+    Yields the measurement LTQs and their error-bars that Sanity 3.0 (or newer) wrote, one gene at a time.
+    :param meanspath: Full path to the measurement LTQs, as NPY of shape (genes, cells) or as a text-table.
+    :param stdspath: Full path to their error-bars (standard deviations), in the same format.
+    :param first_row: Index of the first gene to yield.
+    :param end_row: Index one past the last gene to yield.
+    :param numpy_input: True for NPY-files. Otherwise the files are text-tables with a header-line of cell-IDs, in
+    which every row starts with the gene-ID.
+    :return: Generator of tuples (row_ind, means, stds), with means and stds as float numpy-arrays over the cells.
+    """
+    if numpy_input:
+        # Memory-map the matrices, such that only the rows for this process are read from disk.
+        means_matrix = np.load(meanspath, mmap_mode='r', allow_pickle=False)
+        stds_matrix = np.load(stdspath, mmap_mode='r', allow_pickle=False)
+        if means_matrix.shape != stds_matrix.shape:
+            mp_print("The measurement LTQs in {} and their error-bars in {} have different shapes: {} and {}.".format(
+                meanspath, stdspath, means_matrix.shape, stds_matrix.shape), ERROR=True)
+            exit(1)
+        for row_ind in range(first_row, end_row):
+            yield row_ind, np.array(means_matrix[row_ind, :], dtype=float), np.array(stds_matrix[row_ind, :],
+                                                                                    dtype=float)
+    else:
+        with open(meanspath, 'r') as fmeans:
+            with open(stdspath, 'r') as fstd:
+                # Skip the header-line with cell-IDs, and every row that other processes read
+                for _ in range(first_row + 1):
+                    next(fmeans)
+                    next(fstd)
+                for row_ind in range(first_row, end_row):
+                    # The first field of every row is the gene-ID
+                    means = np.asarray(next(fmeans).rstrip('\n').split('\t')[1:], dtype='float')
+                    stds = np.asarray(next(fstd).rstrip('\n').split('\t')[1:], dtype='float')
+                    yield row_ind, means, stds
+
+
 def read_and_filter(data_folder, meansfile, stdsfile, sanityOutput, zscoreCutoff, mpiInfo, tmp_folder=None,
                     verbose=False, all_genes=False):
     """
@@ -2821,31 +2857,47 @@ def read_and_filter(data_folder, meansfile, stdsfile, sanityOutput, zscoreCutoff
                  "If this is not the desired behavior, change this argument in the Bonsai config-yaml file.")
         # Which files Sanity has written depends on its version and, from version 2.0 onwards, on the method that was
         # used to estimate the gene-variances. Both are worked out from the Sanity output-folder itself.
-        sanity_filepaths = resolve_sanity_filepaths(data_folder)
+        sanity_input = resolve_sanity_input(data_folder)
+        sanity_filepaths = sanity_input['filepaths']
+        # From Sanity 3.0 onwards we read the measurement LTQs, out of which Sanity has already divided its prior
+        sanity_measurements = sanity_input['measurement_ltqs']
+        numpy_input = sanity_input['numpy_input']
         meanspath = sanity_filepaths['means']
         stdspath = sanity_filepaths['stds']
         gene_variancepath = sanity_filepaths['gene_variances']
         gene_meanspath = sanity_filepaths['gene_means']
     else:
+        sanity_measurements = False
+        numpy_input = False
         meanspath = os.path.join(data_folder, meansfile)
         stdspath = os.path.join(data_folder, stdsfile) if (stdsfile is not None) else None
         if not os.path.exists(meanspath):
             mp_print("Did not find necessary input-file: {}".format(meanspath), ERROR=True)
             exit(1)
+    # The text-tables with measurement LTQs have a header-line with cell-IDs, and start every row with the gene-ID
+    named_rows = sanity_measurements and (not numpy_input)
 
-    # First determine the number of genes on process 0
-    if mpiInfo.rank == 0:
-        nGenesOrig = None
-        with open(meanspath, 'r') as fp:
-            for (nGenesOrig, _) in enumerate(fp, 1):
-                pass
+    if numpy_input:
+        # The shape of an NPY-file is in its header, so every process can read it without reading the data
+        nGenesOrig, nCells = np.load(meanspath, mmap_mode='r', allow_pickle=False).shape
     else:
-        nGenesOrig = None
-    nGenesOrig = mpi_wrapper.bcast(nGenesOrig, root=0)  # Communicate number of genes with other processes
-    # Get number of cells
-    with open(meanspath, 'r') as fmeans:
-        reader_means = csv.reader(fmeans, delimiter='\t')
-        nCells = len(next(reader_means))
+        # First determine the number of genes on process 0
+        if mpiInfo.rank == 0:
+            nGenesOrig = None
+            with open(meanspath, 'r') as fp:
+                for (nGenesOrig, _) in enumerate(fp, 1):
+                    pass
+            if named_rows:
+                nGenesOrig -= 1
+        else:
+            nGenesOrig = None
+        nGenesOrig = mpi_wrapper.bcast(nGenesOrig, root=0)  # Communicate number of genes with other processes
+        # Get number of cells
+        with open(meanspath, 'r') as fmeans:
+            reader_means = csv.reader(fmeans, delimiter='\t')
+            nCells = len(next(reader_means))
+        if named_rows:
+            nCells -= 1
 
     # Distribute genes that should be read in over the different processes
     myTasks = getMyTaskNumbers(nGenesOrig, mpiInfo.size, mpiInfo.rank, skippingSteps=False)
@@ -2861,7 +2913,41 @@ def read_and_filter(data_folder, meansfile, stdsfile, sanityOutput, zscoreCutoff
         # In this case, we read in standard deviations, and use them to estimate a signal-to-noise ratio for each gene.
         ltqStdsFound = True
         zscoreCutoffSq = zscoreCutoff ** 2 if zscoreCutoff > 0 else 0.0
-        if sanityOutput:
+        if sanity_measurements:
+            # From Sanity 3.0 onwards, we get the measurement LTQs: the means and variances of the likelihood, since
+            # Sanity has already divided its prior out of the posterior. It does that exactly, on the joint posterior
+            # over all cells of a gene. So, here nothing is divided out, every cell carries information, and the
+            # values are LTQs instead of log-fold changes, such that we do not add the gene-means either.
+            # The signal-to-noise ratio is the same as for input that is not Sanity-output, only evaluated at the
+            # gene-mean and gene-variance that Sanity inferred instead of at our own estimates of those.
+            gene_variances = read_sanity_gene_vector(gene_variancepath)
+            if len(gene_variances) != nGenesOrig:
+                print("Number of gene variances in file {} does not match number of features in the ltq-matrix.\n"
+                      "Check this.".format(gene_variancepath))
+                exit(1)
+            gene_means = read_sanity_gene_vector(gene_meanspath)
+            if len(gene_means) != nGenesOrig:
+                print("Number of gene means in file {} does not match number of features in the ltq-matrix.\n"
+                      "Check this.".format(gene_meanspath))
+                exit(1)
+
+            for row_ind, means, stds in iterate_sanity_measurement_rows(meanspath, stdspath, myTasks[0], myTasks[1],
+                                                                        numpy_input):
+                vars = np.maximum(stds ** 2, 1e-12)
+                gene_var = gene_variances[row_ind]
+                zscoreSq = np.sum((gene_var / (gene_var + vars)) * (means - gene_means[row_ind]) ** 2 / vars) / nCells
+
+                if zscoreSq > zscoreCutoffSq:
+                    tmp_means.append(means)
+                    tmp_vars.append(vars)
+                    tmp_gene_vars.append(gene_var)
+                    genes_to_keep.append(row_ind)
+                if (row_ind - myTasks[0]) > print_ind:
+                    print_ind *= 2
+                    mp_print(
+                        "Processing data for the the %d-th feature out of %d, this took %.2f seconds." % (
+                            row_ind - myTasks[0], nTasks, time.time() - start), ONLY_RANK=0)
+        elif sanityOutput:
             # If input is sanity output, we know that we get the posterior means and variances, instead of the
             # likelihood means and variances. So the posteriors can immediately be used for calculating the
             # signal-to-noise ratio.

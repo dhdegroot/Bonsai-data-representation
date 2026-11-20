@@ -31,8 +31,9 @@ parser.add_argument('--dataset', type=str, default='new_dataset',
 
 parser.add_argument('--data_folder', type=str, default='data/new_dataset',
                     help='Path (absolute or relative to "bonsai-development") to folder where input data can be found. '
-                         'This folder should contain a file with means and standard-deviations in files "delta.txt" '
-                         'and "d_delta.txt" unless filenames_data changes this behaviour.')
+                         'If input_is_sanity_output is True, this should be the output-folder of Sanity, and Bonsai '
+                         'works out itself which files to read. Otherwise, this folder should contain the files '
+                         'with means and standard-deviations that filenames_data points to.')
 
 parser.add_argument('--results_folder', type=str, default=None,
                     help='# Path (absolute or relative to "bonsai-development") to folder where results will be '
@@ -43,12 +44,13 @@ parser.add_argument('--filenames_data', type=str, default='features.txt,standard
                          'should have different cells as columns, and features (such as log transcription quotients) '
                          'as rows.')
 parser.add_argument('--input_is_sanity_output', type=str2bool, default=True,
-                    help='The provided means and stds by Sanity are the means and stds of the posterior for the '
-                         'feature: P(x | D), but in Bonsai we need the likelihood of the data given the feature value: '
-                         'P(D | x). These are related through P(x | D) ~ P(D | x) P(x). So, we need to divide '
-                         'out the prior. If the input is Sanity-output we know how to do this because the reported '
-                         'posterior is Gaussian and the prior was Gaussian around zero (see the SI of the '
-                         'Bonsai-publication. '
+                    help='In Bonsai we need the likelihood of the data given the feature value: P(D | x), while '
+                         'the posterior of Sanity for the feature is P(x | D). These are related through '
+                         'P(x | D) ~ P(D | x) P(x). So, the prior needs to be divided out. From version 3.0 onwards, '
+                         'Sanity does this itself when run with --bonsai-output-mode, and Bonsai reads the result as '
+                         'it is. Older Sanity-versions report the means and stds of the posterior, and Bonsai divides '
+                         'out the prior, which it can do because the reported posterior is Gaussian and the prior was '
+                         'Gaussian around zero (see the SI of the Bonsai-publication). '
                          'If your input-data is not Sanity-output, set this flag to False, but make sure to provide '
                          'Bonsai with the required means and variances of the likelihood (P(D | x)).')
 

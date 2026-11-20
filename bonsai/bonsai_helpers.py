@@ -1183,6 +1183,18 @@ SANITY_LEGACY_FILENAMES = {'means': 'delta_vmax.txt', 'stds': 'd_delta_vmax.txt'
                            'gene_variances': 'variance_vmax.txt', 'gene_means': 'mu_vmax.txt'}
 SANITY_FILENAMES = {'means': 'delta.txt', 'stds': 'd_delta.txt',
                     'gene_variances': 'variance.txt', 'gene_means': 'mu.txt'}
+# From version 3.0 onwards, Sanity names every file after what it holds, and Bonsai reads the measurement LTQs: the
+# posterior with Sanity's prior already divided out, exactly, by Sanity itself. Nothing is divided out by Bonsai for
+# these files, and their values are absolute log-transcription-quotients instead of deviations from the gene-mean.
+# Sanity's '--bonsai-output-mode' writes them as NPY-files; without it, '--ltq-estimate measured' or 'both' writes
+# the same files as text, with a header-line of cell-IDs and the gene-ID as first column.
+SANITY_MEASUREMENT_VERSION = (3, 0, 0)
+SANITY_MEASUREMENT_FILENAMES = {'means': 'ltqs_measurement_approx.txt',
+                                'stds': 'ltqs_measurement_approx_error_bars.txt',
+                                'gene_variances': 'gene_variances.txt', 'gene_means': 'gene_means.txt'}
+SANITY_MEASUREMENT_NPY_FILENAMES = {'means': 'ltqs_measurement_approx.npy',
+                                    'stds': 'ltqs_measurement_approx_error_bars.npy',
+                                    'gene_variances': 'gene_variances.npy', 'gene_means': 'gene_means.npy'}
 # Bonsai needs Sanity's estimates at a single gene-variance, so that the reported posteriors can be turned back into a
 # likelihood by dividing out the prior. The 'MARG'-method instead marginalises over the gene-variance, which does not
 # give us such a likelihood.
@@ -1213,20 +1225,23 @@ def parse_version_string(version_string):
     return tuple((numbers + [0, 0, 0])[:3])
 
 
-def parse_sanity_command_file(command_path):
+def parse_sanity_command_headers(command_path):
     """
     Reads the header-lines that Sanity (from version 2.0 onwards) writes at the top of its 'sanity_command.txt'-file.
     Such a file looks like:
-        # Timestamp: 2026-08-07 10:42:37
-        # Sanity version: 2.0.0
-        # Method: MLE
-        Sanity -f count_table.tsv -e 1 -d output_folder -v_m MLE
+        # Timestamp: 2026-11-16 12:00:00
+        # Sanity version: 3.0.0
+        # Method: EAP
+        # LTQ estimate: measured
+        # Output mode: bonsai
+        Sanity -f count_table.tsv -d output_folder --bonsai-output-mode
+    The last two header-lines are written from version 3.0 onwards.
     :param command_path: Full path to the 'sanity_command.txt'-file.
-    :return: Tuple (version, method), where version is a tuple of three integers and method an upper-case string.
-    Either of the two is None when the corresponding header-line is absent or could not be interpreted.
+    :return: Dictionary with the keys 'version' (tuple of three integers), 'method' (upper-case string),
+    'ltq_estimate' and 'output_mode' (lower-case strings). A value is None when the corresponding header-line is absent
+    or could not be interpreted.
     """
-    version = None
-    method = None
+    headers = {'version': None, 'method': None, 'ltq_estimate': None, 'output_mode': None}
     with open(command_path, 'r') as command_file:
         for line in command_file:
             line = line.strip()
@@ -1237,10 +1252,26 @@ def parse_sanity_command_file(command_path):
             keyword = keyword.strip().lower()
             value = value.strip()
             if keyword == 'sanity version':
-                version = parse_version_string(value)
+                headers['version'] = parse_version_string(value)
             elif keyword == 'method' and len(value):
-                method = value.upper()
-    return version, method
+                headers['method'] = value.upper()
+            elif keyword == 'ltq estimate' and len(value):
+                headers['ltq_estimate'] = value.lower()
+            elif keyword == 'output mode' and len(value):
+                headers['output_mode'] = value.lower()
+    return headers
+
+
+def parse_sanity_command_file(command_path):
+    """
+    Reads the Sanity-version and the variance-estimation method from a 'sanity_command.txt'-file; see
+    parse_sanity_command_headers for the file-format and for the other header-lines.
+    :param command_path: Full path to the 'sanity_command.txt'-file.
+    :return: Tuple (version, method), where version is a tuple of three integers and method an upper-case string.
+    Either of the two is None when the corresponding header-line is absent or could not be interpreted.
+    """
+    headers = parse_sanity_command_headers(command_path)
+    return headers['version'], headers['method']
 
 
 def get_sanity_binary_version(binary_path):
@@ -1261,23 +1292,93 @@ def get_sanity_binary_version(binary_path):
     return parse_version_string(words[-1])
 
 
+def read_sanity_gene_vector(filepath):
+    """
+    Reads one number per gene from a Sanity output-file, which is a text-file with one number per line, or an NPY-file
+    of shape (genes, 1).
+    :param filepath: Full path to the file.
+    :return: One-dimensional numpy-array with one value per gene.
+    """
+    if filepath.endswith('.npy'):
+        return np.asarray(np.load(filepath, allow_pickle=False), dtype=float).reshape(-1)
+    return np.atleast_1d(np.loadtxt(filepath))
+
+
+def resolve_sanity_measurement_filepaths(data_folder, headers):
+    """
+    Works out which files to read from the output of Sanity 3.0 or newer, and checks that they are all there.
+    Bonsai reads the measurement LTQs, which the Sanity-run must have written. A run that wrote only the posterior
+    estimates cannot be used: the prior cannot be divided out of those cell by cell, because their error-bars carry
+    the uncertainty on the gene-mean, which all cells of a gene share.
+    :param data_folder: Folder with the output of a single Sanity-run.
+    :param headers: The header-lines of its 'sanity_command.txt', as given by parse_sanity_command_headers.
+    :return: Tuple (filepaths, numpy_input), with filepaths as in resolve_sanity_filepaths and numpy_input telling
+    whether these are NPY-files instead of text-files.
+    """
+    ltq_estimate = headers['ltq_estimate']
+    if ltq_estimate is None:
+        mp_print("Could not read which LTQ-estimates the Sanity-output in {} holds.\n"
+                 "Expected a line of the form '# LTQ estimate: measured' in {}.".format(
+                     data_folder, SANITY_COMMAND_FILENAME), ERROR=True)
+        exit(1)
+    if ltq_estimate == 'posterior':
+        mp_print("The Sanity-output in {} holds only the posterior LTQs ('# LTQ estimate: posterior').\n"
+                 "Bonsai needs the measurement LTQs, which are the posterior with Sanity's prior divided out.\n"
+                 "Please rerun Sanity with '--bonsai-output-mode' (or with '--ltq-estimate measured').".format(
+                     data_folder), ERROR=True)
+        exit(1)
+    if ltq_estimate not in ('measured', 'both'):
+        mp_print("The Sanity-output in {} holds the LTQ-estimate '{}', which Bonsai does not know.\n"
+                 "Bonsai knows 'posterior', 'measured' and 'both'.".format(data_folder, ltq_estimate), ERROR=True)
+        exit(1)
+    numpy_input = (headers['output_mode'] == 'bonsai') or os.path.exists(
+        os.path.join(data_folder, SANITY_MEASUREMENT_NPY_FILENAMES['means']))
+    filenames = SANITY_MEASUREMENT_NPY_FILENAMES if numpy_input else SANITY_MEASUREMENT_FILENAMES
+    filepaths = {key: os.path.join(data_folder, filename) for key, filename in filenames.items()}
+    missing_paths = [filepath for filepath in filepaths.values() if not os.path.exists(filepath)]
+    if len(missing_paths):
+        for missing_path in missing_paths:
+            mp_print("File {} not found.".format(missing_path), WARNING=True)
+        mp_print("Could not find all Sanity-output that Bonsai needs in {}.\n"
+                 "Make sure to run Sanity with '--bonsai-output-mode'.".format(data_folder), ERROR=True)
+        exit(1)
+    return filepaths, numpy_input
+
+
 def resolve_sanity_filepaths(data_folder):
     """
-    Works out which files in a Sanity output-folder Bonsai should read, and checks that they are all there.
-    When the folder holds no 'sanity_command.txt', we are dealing with Sanity older than version 2.0, and we expect the
-    '_vmax'-files that such a Sanity writes when it is run with '-max_v'. When the folder does hold a
-    'sanity_command.txt', we read the version and the method from it, and expect the plain filenames that Sanity writes
-    from version 2.0 onwards.
-    Reports the problem and exits when the Sanity-version is too old, when the method cannot be used by Bonsai, or when
-    output-files are missing.
+    Works out which files in a Sanity output-folder Bonsai should read, and checks that they are all there; see
+    resolve_sanity_input, which also tells what kind of estimates these files hold.
     :param data_folder: Folder with the output of a single Sanity-run.
     :return: Dictionary with the keys 'means', 'stds', 'gene_variances' and 'gene_means', giving the full path to the
     corresponding Sanity output-file.
     """
+    return resolve_sanity_input(data_folder)['filepaths']
+
+
+def resolve_sanity_input(data_folder):
+    """
+    Works out which files in a Sanity output-folder Bonsai should read, and checks that they are all there.
+    When the folder holds no 'sanity_command.txt', we are dealing with Sanity older than version 2.0, and we expect the
+    '_vmax'-files that such a Sanity writes when it is run with '-max_v'. When the folder does hold a
+    'sanity_command.txt', we read the version and the method from it. For version 2 we expect the plain filenames
+    'delta.txt', 'd_delta.txt', 'variance.txt' and 'mu.txt'. In both these cases the files hold posterior deviations
+    from the gene-mean, and Bonsai divides out Sanity's prior itself.
+    From version 3.0 onwards we expect the measurement LTQs, as text or as NPY, out of which Sanity has already
+    divided its prior; see resolve_sanity_measurement_filepaths.
+    Reports the problem and exits when the Sanity-version is too old, when the method cannot be used by Bonsai, when
+    a run of version 3.0 or newer did not write the measurement LTQs, or when output-files are missing.
+    :param data_folder: Folder with the output of a single Sanity-run.
+    :return: Dictionary with the keys 'filepaths' (dictionary with the keys 'means', 'stds', 'gene_variances' and
+    'gene_means', giving the full path to the corresponding Sanity output-file), 'measurement_ltqs' (True when the
+    files hold absolute measurement LTQs without prior, False when they hold posterior deviations from the gene-mean)
+    and 'numpy_input' (True when the files are NPY-files instead of text-files).
+    """
     command_path = os.path.join(data_folder, SANITY_COMMAND_FILENAME)
     new_sanity = os.path.exists(command_path)
     if new_sanity:
-        version, method = parse_sanity_command_file(command_path)
+        headers = parse_sanity_command_headers(command_path)
+        version, method = headers['version'], headers['method']
         if version is None:
             mp_print("Could not read the Sanity-version from {}.\n"
                      "Expected a line of the form '# Sanity version: 2.0.0'.".format(command_path), ERROR=True)
@@ -1305,6 +1406,9 @@ def resolve_sanity_filepaths(data_folder):
                      "know.\nBonsai can use Sanity-output made with any of these methods: {}.".format(
                          data_folder, method, ', '.join(SANITY_ACCEPTED_METHODS)), ERROR=True)
             exit(1)
+        if version >= SANITY_MEASUREMENT_VERSION:
+            filepaths, numpy_input = resolve_sanity_measurement_filepaths(data_folder, headers)
+            return {'filepaths': filepaths, 'measurement_ltqs': True, 'numpy_input': numpy_input}
         filenames = SANITY_FILENAMES
     else:
         filenames = SANITY_LEGACY_FILENAMES
@@ -1329,7 +1433,7 @@ def resolve_sanity_filepaths(data_folder):
                      "and the vmax-argument '-max_v true'? When using Sanity 2.0 or newer, run it with "
                      "'-e 1 -v_m MAP' instead.", ERROR=True)
         exit(1)
-    return filepaths
+    return {'filepaths': filepaths, 'measurement_ltqs': False, 'numpy_input': False}
 
 
 def print_memory(location=None):
